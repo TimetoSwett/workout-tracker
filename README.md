@@ -2,7 +2,7 @@
 
 A free, offline-first PWA for logging workouts. Data syncs to **your own Dropbox**, and an AI coach (Claude or any OpenAI-compatible API like NanoGPT) reviews your training history.
 
-**Live app:** https://timeswett.github.io/workout-tracker/
+**Live app:** https://timetoswett.github.io/workout-tracker/
 
 ## Features
 
