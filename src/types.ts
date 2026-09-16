@@ -151,6 +151,7 @@ export interface DailyMetric {
   weight?: number
   bodyFat?: number
   muscle?: number
+  leanMass?: number
   steps?: number
   sleepMin?: number
   updatedAt: number

@@ -370,8 +370,9 @@ export function SettingsView() {
       <div class="card">
         <h3>Health data (Samsung Health)</h3>
         <p class="muted small">
-          Samsung Health app → Settings → Download personal data → export as CSV. Import weight, steps, and
-          sleep CSVs or the whole zip. Re-import anytime — duplicates merge.
+          Samsung Health app → Settings → Download personal data. Import the whole zip — weight, body
+          composition, steps, and sleep are extracted automatically (raw/duplicate files are skipped).
+          Re-import anytime; duplicates merge.
         </p>
         <label class="btn ghost wide file-btn">
           Import Samsung Health CSV / zip

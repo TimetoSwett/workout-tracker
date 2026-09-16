@@ -10,6 +10,11 @@ export interface ImportResult {
 
 const KG_TO_LB = 2.2046226
 
+function kgToUnits(kg: number, appUnits: 'lbs' | 'kg'): number {
+  const v = appUnits === 'kg' ? kg : kg * KG_TO_LB
+  return Math.round(v * 10) / 10
+}
+
 function parseCsvLine(line: string): string[] {
   const out: string[] = []
   let cur = ''
@@ -30,20 +35,27 @@ function parseCsvLine(line: string): string[] {
   return out
 }
 
+// Samsung CSVs: line 1 is metadata ("com.samsung.health.weight,7006011,12"),
+// line 2 is the header, data from line 3. Rows may carry a trailing empty
+// column beyond the header (extra comma) — index-based access stays safe.
 function parseCsv(text: string): { header: string[]; rows: string[][] } {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() && !l.trim().startsWith('#'))
+  const lines = text.replace(/^\ufeff/, '').split(/\r?\n/).filter((l) => l.trim())
   if (!lines.length) return { header: [], rows: [] }
-  // Samsung CSVs sometimes start with a metadata line before the header
-  let start = 0
-  if (!lines[0].toLowerCase().includes('date') && lines[1]?.toLowerCase().includes('date')) start = 1
-  const header = parseCsvLine(lines[start]).map((h) => h.trim().toLowerCase())
-  const rows = lines.slice(start + 1).map(parseCsvLine)
+  let hi = 0
+  while (hi < lines.length) {
+    const cells = parseCsvLine(lines[hi]).map((c) => c.trim().toLowerCase())
+    if (cells.some((c) => /(^|\.)(start_time|create_time|update_time|day_time|end_time)$/.test(c))) break
+    hi++
+  }
+  if (hi >= lines.length) return { header: [], rows: [] }
+  const header = parseCsvLine(lines[hi]).map((h) => h.trim().toLowerCase())
+  const rows = lines.slice(hi + 1).map(parseCsvLine)
   return { header, rows }
 }
 
 function col(header: string[], ...names: string[]): number {
   for (const n of names) {
-    const i = header.findIndex((h) => h === n)
+    const i = header.indexOf(n)
     if (i >= 0) return i
   }
   return -1
@@ -57,11 +69,8 @@ function num(v: string | undefined): number | undefined {
 
 function toDate(v: string | undefined): string | undefined {
   if (!v) return undefined
-  // Accept YYYY-MM-DD, YYYY-MM-DD HH:MM:SS, YYYYMMDD, unix seconds/ms
-  let m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)
+  const m = v.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
-  m = v.match(/^(\d{4})(\d{2})(\d{2})/)
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`
   if (/^\d{10,13}$/.test(v)) {
     const ms = v.length === 10 ? parseInt(v) * 1000 : parseInt(v)
     const d = new Date(ms)
@@ -70,11 +79,15 @@ function toDate(v: string | undefined): string | undefined {
   return undefined
 }
 
-function unitsToLb(v: number | undefined, unit: string | undefined, appUnits: 'lbs' | 'kg'): number | undefined {
-  if (v == null) return undefined
-  if (unit === 'kg' || unit === 'kilograms') v = v * KG_TO_LB
-  if (appUnits === 'kg' && (unit === 'lbs' || unit === 'pounds' || !unit)) v = v / KG_TO_LB
-  return Math.round(v * 10) / 10
+function toEpoch(v: string | undefined): number {
+  if (!v) return Date.now()
+  const t = Date.parse(v.trim().replace(' ', 'T'))
+  return Number.isFinite(t) ? t : Date.now()
+}
+
+function avg(nums: number[]): number | undefined {
+  if (!nums.length) return undefined
+  return Math.round((nums.reduce((s, n) => s + n, 0) / nums.length) * 10) / 10
 }
 
 interface ParsedDay {
@@ -82,96 +95,147 @@ interface ParsedDay {
   weight?: number
   bodyFat?: number
   muscle?: number
+  leanMass?: number
   steps?: number
   sleepMin?: number
+  updatedAt: number
+  source: DailyMetric['source']
 }
 
+// weight is in kg; *_mass columns in kg; bare-name columns (body_fat,
+// skeletal_muscle, fat_free) are percentages. Multiple weigh-ins per day
+// are averaged into one daily record.
 function importWeightCsv(text: string, appUnits: 'lbs' | 'kg'): ParsedDay[] {
   const { header, rows } = parseCsv(text)
-  const dI = col(header, 'start_time', 'create_date', 'create_time', 'date', 'day_date')
-  const wI = col(header, 'weight', 'weight_kg', 'weight_lb', 'weight_lbs')
-  const bfI = col(header, 'body_fat', 'bodyfat', 'fat', 'body_fat_%')
-  const muI = col(header, 'skeletal_muscle', 'muscle_mass', 'muscle', 'skeletal_muscle_mass')
-  const uI = col(header, 'unit', 'weight_unit')
+  const dI = col(header, 'start_time')
+  const uI = col(header, 'update_time')
+  const wI = col(header, 'weight')
+  const bfI = col(header, 'body_fat')
+  const smI = col(header, 'skeletal_muscle_mass')
+  const ffI = col(header, 'fat_free_mass')
   if (dI < 0 || wI < 0) return []
-  const out: ParsedDay[] = []
+  const byDay = new Map<
+    string,
+    { w: number[]; bf: number[]; sm: number[]; ff: number[]; updatedAt: number }
+  >()
   for (const r of rows) {
     const date = toDate(r[dI])
-    const weight = unitsToLb(num(r[wI]), r[uI]?.trim().toLowerCase(), appUnits)
-    if (!date || weight == null) continue
+    const kg = num(r[wI])
+    if (!date || kg == null || kg < 20 || kg > 400) continue
+    const g = byDay.get(date) ?? { w: [], bf: [], sm: [], ff: [], updatedAt: 0 }
+    g.w.push(kgToUnits(kg, appUnits))
     const bf = num(r[bfI])
-    const mu = num(r[muI])
-    out.push({ date, weight, bodyFat: bf != null && bf < 70 ? Math.round(bf * 10) / 10 : undefined, muscle: mu })
+    if (bf != null && bf > 0 && bf < 70) g.bf.push(bf)
+    const sm = num(r[smI])
+    if (sm != null && sm > 0) g.sm.push(kgToUnits(sm, appUnits))
+    const ff = num(r[ffI])
+    if (ff != null && ff > 0) g.ff.push(kgToUnits(ff, appUnits))
+    g.updatedAt = Math.max(g.updatedAt, toEpoch(r[uI]))
+    byDay.set(date, g)
   }
-  return out
+  return [...byDay.entries()].map(([date, g]) => ({
+    date,
+    weight: avg(g.w),
+    bodyFat: avg(g.bf),
+    muscle: avg(g.sm),
+    leanMass: avg(g.ff),
+    updatedAt: g.updatedAt || Date.now(),
+    source: 'samsung' as const,
+  }))
 }
 
 function importStepsCsv(text: string): ParsedDay[] {
   const { header, rows } = parseCsv(text)
-  const dI = col(header, 'start_time', 'create_date', 'create_time', 'date', 'day_date')
-  const sI = col(header, 'step_count', 'steps', 'count')
-  if (dI < 0 || sI < 0) return []
-  const byDay = new Map<string, number>()
+  const dI = col(header, 'day_time')
+  const cI = col(header, 'count')
+  const uI = col(header, 'update_time')
+  if (dI < 0 || cI < 0) return []
+  const out: ParsedDay[] = []
+  const seen = new Map<string, ParsedDay>()
   for (const r of rows) {
     const date = toDate(r[dI])
-    const steps = num(r[sI])
+    const steps = num(r[cI])
     if (!date || steps == null) continue
-    byDay.set(date, (byDay.get(date) ?? 0) + steps) // hourly bins may repeat a day
+    // multiple rows per day (phone + watch sources, partial syncs) — keep the max
+    const cur = seen.get(date)
+    if (!cur || (cur.steps ?? 0) < steps) {
+      seen.set(date, { date, steps: Math.round(steps), updatedAt: toEpoch(r[uI]), source: 'samsung' })
+    }
   }
-  return [...byDay.entries()].map(([date, steps]) => ({ date, steps: Math.round(steps) }))
+  out.push(...seen.values())
+  return out
 }
 
+// Sleep sessions: sleep_duration is minutes (verified against end-start);
+// rows missing it get the duration computed from the timestamps. Sessions
+// are attributed to the wake-up date; the longest session wins the day.
 function importSleepCsv(text: string): ParsedDay[] {
   const { header, rows } = parseCsv(text)
-  // sleep_stage or sleep data: either duration in minutes or start/end timestamps
-  const dI = col(header, 'start_time', 'create_date', 'create_time', 'date', 'day_date')
-  const durI = col(header, 'sleep_duration', 'duration', 'total_sleep_time', 'sleep_time', 'time_in_bed')
-  const eI = col(header, 'end_time', 'update_time')
-  if (dI < 0) return []
-  const byDay = new Map<string, number>()
+  const sI = col(header, 'com.samsung.health.sleep.start_time', 'start_time')
+  const eI = col(header, 'com.samsung.health.sleep.end_time', 'end_time')
+  const durI = col(header, 'sleep_duration')
+  const uI = col(header, 'com.samsung.health.sleep.update_time', 'update_time')
+  if (eI < 0 || sI < 0) return []
+  const byDay = new Map<string, ParsedDay>()
   for (const r of rows) {
-    const start = r[dI]
-    const date = toDate(start)
+    const date = toDate(r[eI])
     if (!date) continue
-    let min: number | undefined
-    if (durI >= 0) {
-      const v = num(r[durI])
-      if (v != null) min = v > 100000 ? v / 60000 : v <= 24 ? v * 60 : v
-    } else if (eI >= 0 && /^\d{10,13}$/.test(r[eI] ?? '')) {
-      const s = start.match(/^\d{10,13}$/) ? (start.length === 10 ? parseInt(start) * 1000 : parseInt(start)) : Date.parse(start)
-      const e = r[eI].length === 10 ? parseInt(r[eI]) * 1000 : parseInt(r[eI])
-      if (Number.isFinite(s) && Number.isFinite(e)) min = Math.round((e - s) / 60000)
+    let min = num(r[durI])
+    if (min == null) {
+      const s = Date.parse(r[sI].replace(' ', 'T'))
+      const e = Date.parse(r[eI].replace(' ', 'T'))
+      if (Number.isFinite(s) && Number.isFinite(e)) min = (e - s) / 60000
     }
-    if (min == null || min < 60 || min > 16 * 60) continue
-    byDay.set(date, byDay.has(date) ? Math.max(byDay.get(date)!, min) : min)
+    if (min == null || min < 30 || min > 16 * 60) continue
+    const cur = byDay.get(date)
+    if (!cur || (cur.sleepMin ?? 0) < min) {
+      byDay.set(date, { date, sleepMin: Math.round(min), updatedAt: toEpoch(r[uI]), source: 'samsung' })
+    }
   }
-  return [...byDay.entries()].map(([date, sleepMin]) => ({ date, sleepMin }))
+  return [...byDay.values()]
 }
 
-function apply(days: ParsedDay[], source: DailyMetric['source'], counts: { added: number; updated: number }) {
+// Classify by filename prefix — never exact names (timestamps change per
+// export). Raw/high-frequency duplicates are excluded: pedometer bins,
+// sleep_stage, sleep_raw_data, sleep_combined, stress histograms.
+function classify(base: string): 'weight' | 'steps' | 'sleep' | null {
+  const b = base.toLowerCase()
+  if (/pedometer|sleep_stage|sleep_raw|sleep_combined|histogram|alerted/.test(b)) return null
+  if (b.startsWith('com.samsung.health.weight.')) return 'weight'
+  if (b.includes('step_daily_trend')) return 'steps'
+  if (b.startsWith('com.samsung.shealth.sleep.')) return 'sleep'
+  return null
+}
+
+function mergeDay(a: DailyMetric, b: DailyMetric): DailyMetric {
+  const [newer, older] = (b.updatedAt ?? 0) >= (a.updatedAt ?? 0) ? [b, a] : [a, b]
+  return {
+    date: a.date,
+    weight: newer.weight ?? older.weight,
+    bodyFat: newer.bodyFat ?? older.bodyFat,
+    muscle: newer.muscle ?? older.muscle,
+    leanMass: newer.leanMass ?? older.leanMass,
+    steps: newer.steps ?? older.steps,
+    sleepMin: newer.sleepMin ?? older.sleepMin,
+    source: newer.source ?? older.source,
+    updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
+  }
+}
+
+function apply(days: ParsedDay[], counts: { added: number; updated: number }) {
   if (!days.length) return
-  const now = Date.now()
   const byDate = new Map(getMetrics().map((m) => [m.date, m]))
   for (const d of days) {
     const existing = byDate.get(d.date)
     if (existing) {
-      byDate.set(d.date, {
-        ...existing,
-        weight: d.weight ?? existing.weight,
-        bodyFat: d.bodyFat ?? existing.bodyFat,
-        muscle: d.muscle ?? existing.muscle,
-        steps: d.steps ?? existing.steps,
-        sleepMin: d.sleepMin ?? existing.sleepMin,
-        updatedAt: now,
-        source,
-      })
+      byDate.set(d.date, mergeDay(existing, d))
       counts.updated++
     } else {
-      byDate.set(d.date, { ...d, updatedAt: now, source })
+      byDate.set(d.date, d)
       counts.added++
     }
   }
-  setMetrics([...byDate.values()]) // single localStorage write for the whole batch
+  setMetrics([...byDate.values()]) // single batched write for the whole import
 }
 
 export async function importSamsungHealth(files: File[], appUnits: 'lbs' | 'kg'): Promise<ImportResult> {
@@ -185,36 +249,35 @@ export async function importSamsungHealth(files: File[], appUnits: 'lbs' | 'kg')
         for (const [name, z] of Object.entries(zip.files)) {
           if (z.dir) continue
           const base = name.split('/').pop() ?? name
-          if (!/\.csv$/i.test(base)) continue
+          if (!/\.csv$/i.test(base)) continue // skips jsons/ sidecar bulk (SpO2, HRV binning, etc.)
           entries.push({ name: base, text: await z.async('string') })
         }
       } else if (/\.csv$/i.test(file.name)) {
         entries.push({ name: file.name, text: await file.text() })
-      } else if (/\.json$/i.test(file.name)) {
-        result.errors.push(`${file.name}: JSON not supported — export as CSV from Samsung Health`)
       }
     } catch (e) {
       result.errors.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
+  const allDays: ParsedDay[] = []
   for (const e of entries) {
-    const n = e.name.toLowerCase()
     try {
-      if (n.includes('weight')) {
-        apply(importWeightCsv(e.text, appUnits), 'samsung', result.days)
-        result.files.push(e.name)
-      } else if (n.includes('step')) {
-        apply(importStepsCsv(e.text), 'samsung', result.days)
-        result.files.push(e.name)
-      } else if (n.includes('sleep')) {
-        apply(importSleepCsv(e.text), 'samsung', result.days)
-        result.files.push(e.name)
-      }
+      const kind = classify(e.name)
+      if (!kind) continue
+      const days =
+        kind === 'weight'
+          ? importWeightCsv(e.text, appUnits)
+          : kind === 'steps'
+            ? importStepsCsv(e.text)
+            : importSleepCsv(e.text)
+      allDays.push(...days)
+      result.files.push(e.name)
     } catch (err) {
       result.errors.push(`${e.name}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
+  apply(allDays, result.days)
   return result
 }

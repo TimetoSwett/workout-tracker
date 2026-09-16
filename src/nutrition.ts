@@ -38,6 +38,10 @@ export function compileMetrics(metrics: DailyMetric[], settings: Settings, days 
   if (bf.length >= 2) {
     lines.push(`Body fat: ${bf[0].bodyFat}% → ${bf[bf.length - 1].bodyFat}%`)
   }
+  const lm = recent.filter((m) => m.leanMass != null)
+  if (lm.length >= 2) {
+    lines.push(`Lean mass: ${lm[0].leanMass}${settings.units} → ${lm[lm.length - 1].leanMass}${settings.units}`)
+  }
   const s = recent.filter((m) => m.steps != null)
   if (s.length) {
     const avg = s.reduce((sum, m) => sum + (m.steps ?? 0), 0) / s.length

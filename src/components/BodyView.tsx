@@ -22,6 +22,7 @@ export function BodyView() {
   const { settings } = useStore()
   const [, force] = useState(0)
   const [toast, setToast] = useState('')
+  const [wRange, setWRange] = useState(365)
   const [manualDate, setManualDate] = useState(new Date().toISOString().slice(0, 10))
   const [manualWeight, setManualWeight] = useState('')
   const [manualBf, setManualBf] = useState('')
@@ -34,12 +35,13 @@ export function BodyView() {
   const metrics = getMetrics()
   const u = settings.units
 
-  const weightPts = window(metrics, 90, (m) => m.weight)
-  const bfPts = window(metrics, 90, (m) => m.bodyFat)
+  const weightPts = window(metrics, wRange, (m) => m.weight)
+  const bfPts = window(metrics, wRange, (m) => m.bodyFat)
   const stepsPts = window(metrics, 14, (m) => m.steps)
   const sleepPts = window(metrics, 14, (m) => m.sleepMin)
 
   const latest = [...metrics].reverse().find((m) => m.weight != null)
+  const latestLean = [...metrics].reverse().find((m) => m.leanMass != null)
   const wAvgNow = avg(weightPts.slice(-7))
   const wAvgPrev = avg(weightPts.slice(-14, -7))
   const wTrend = wAvgNow != null && wAvgPrev != null ? wAvgNow - wAvgPrev : null
@@ -103,6 +105,14 @@ export function BodyView() {
               <div class="stat-label">body fat</div>
             </div>
           )}
+          {latestLean && (
+            <div>
+              <div class="stat-num">
+                {fmt(latestLean.leanMass!)} {u}
+              </div>
+              <div class="stat-label">lean mass</div>
+            </div>
+          )}
           {wTrend != null && (
             <div>
               <div class="stat-num" style={{ color: wTrend < 0 ? '#6ba8ff' : 'var(--accent)' }}>
@@ -115,8 +125,25 @@ export function BodyView() {
         </div>
       )}
 
-      {weightPts.length > 1 && <LineChart title={`Weight trend (${u})`} points={weightPts} />}
-      {bfPts.length > 1 && <LineChart title="Body fat %" points={bfPts} />}
+      {(weightPts.length > 1 || bfPts.length > 1) && (
+        <div class="card">
+          <div class="setting-row" style={{ justifyContent: 'flex-end' }}>
+            <div class="seg">
+              <button class={wRange === 90 ? 'active' : ''} onClick={() => setWRange(90)}>
+                90d
+              </button>
+              <button class={wRange === 365 ? 'active' : ''} onClick={() => setWRange(365)}>
+                1y
+              </button>
+              <button class={wRange === 3650 ? 'active' : ''} onClick={() => setWRange(3650)}>
+                All
+              </button>
+            </div>
+          </div>
+          {weightPts.length > 1 && <LineChart title={`Weight trend (${u})`} points={weightPts} />}
+          {bfPts.length > 1 && <LineChart title="Body fat %" points={bfPts} />}
+        </div>
+      )}
 
       <div class="card">
         <h3>Log weight</h3>

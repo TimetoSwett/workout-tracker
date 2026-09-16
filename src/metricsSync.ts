@@ -30,6 +30,7 @@ function mergeRecord(a: DailyMetric, b: DailyMetric): DailyMetric {
     weight: newer.weight ?? older.weight,
     bodyFat: newer.bodyFat ?? older.bodyFat,
     muscle: newer.muscle ?? older.muscle,
+    leanMass: newer.leanMass ?? older.leanMass,
     steps: newer.steps ?? older.steps,
     sleepMin: newer.sleepMin ?? older.sleepMin,
     source: newer.source ?? older.source,
