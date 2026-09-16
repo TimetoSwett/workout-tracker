@@ -2,6 +2,9 @@ export interface LoggedSet {
   weight: number | null
   reps: number | null
   done?: boolean
+  weightTarget?: number | null
+  repsTarget?: number | null
+  status?: 'complete' | 'skipped' | 'pending'
 }
 
 export interface LoggedExercise {
@@ -9,6 +12,16 @@ export interface LoggedExercise {
   name: string
   sets: LoggedSet[]
   notes?: string
+  muscleGroupId?: number
+  templateExerciseId?: string
+}
+
+export interface MuscleFeedback {
+  muscleGroupId: number
+  pump?: number // 0-2
+  soreness?: number // -1 to 3
+  workload?: number // 0-3
+  recommendedSets?: number // imported/historical only, display-only
 }
 
 export interface Workout {
@@ -21,6 +34,68 @@ export interface Workout {
   notes?: string
   updatedAt: number
   deleted?: boolean
+  mesoId?: string
+  mesoWeek?: number
+  mesoDayPosition?: number
+  status?: 'complete' | 'partial' | 'skipped'
+  bodyweight?: number
+  muscleFeedback?: MuscleFeedback[]
+}
+
+export interface MuscleGroup {
+  id: number
+  name: string
+  inferred?: boolean
+}
+
+export const MUSCLE_GROUPS: MuscleGroup[] = [
+  { id: 1, name: 'Chest' },
+  { id: 2, name: 'Back' },
+  { id: 3, name: 'Triceps' },
+  { id: 4, name: 'Biceps' },
+  { id: 5, name: 'Side Delts', inferred: true },
+  { id: 6, name: 'Quads' },
+  { id: 7, name: 'Glutes', inferred: true },
+  { id: 8, name: 'Hamstrings', inferred: true },
+  { id: 9, name: 'Calves' },
+  { id: 10, name: 'Traps', inferred: true },
+  { id: 11, name: 'Forearms' },
+  { id: 12, name: 'Abs' },
+]
+
+export interface MesoTemplateExercise {
+  id: string
+  name: string
+  muscleGroupId?: number
+  sets: number
+  repTarget?: [number, number]
+}
+
+export interface MesoTemplateDay {
+  id: string
+  label: string
+  exercises: MesoTemplateExercise[]
+}
+
+export interface MesoPriority {
+  muscleGroupId: number
+  type: 'grow' | 'maintain' | 'emphasize'
+}
+
+export interface Mesocycle {
+  id: string
+  name: string
+  unit: 'lbs' | 'kg'
+  weeksPlanned: number
+  deloadWeek?: number
+  days: MesoTemplateDay[]
+  priorities: MesoPriority[]
+  status: 'active' | 'complete'
+  createdAt: number
+  finishedAt?: number
+  updatedAt: number
+  deleted?: boolean
+  imported?: boolean
 }
 
 export interface TemplateExercise {
@@ -59,6 +134,7 @@ export interface Settings {
   dropboxToken?: string
   ai?: AISettings
   lastSyncAt?: number
+  muscleGroupNames?: Record<number, string>
 }
 
 export interface ActiveWorkout {
