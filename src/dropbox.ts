@@ -2,13 +2,13 @@ const CONTENT_API = 'https://content.dropboxapi.com/2'
 
 export const DATA_PATH = '/workouts.jsonl'
 
-export async function dropboxDownload(token: string): Promise<{ content: string | null; error?: string }> {
+export async function dropboxDownload(token: string, path: string = DATA_PATH): Promise<{ content: string | null; error?: string }> {
   try {
     const res = await fetch(`${CONTENT_API}/files/download`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Dropbox-API-Arg': JSON.stringify({ path: DATA_PATH }),
+        'Dropbox-API-Arg': JSON.stringify({ path }),
       },
     })
     if (res.status === 409) return { content: null }
@@ -22,13 +22,13 @@ export async function dropboxDownload(token: string): Promise<{ content: string 
   }
 }
 
-export async function dropboxUpload(token: string, content: string): Promise<string | null> {
+export async function dropboxUpload(token: string, content: string, path: string = DATA_PATH): Promise<string | null> {
   try {
     const res = await fetch(`${CONTENT_API}/files/upload`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Dropbox-API-Arg': JSON.stringify({ path: DATA_PATH, mode: 'overwrite', mute: true }),
+        'Dropbox-API-Arg': JSON.stringify({ path, mode: 'overwrite', mute: true }),
         'Content-Type': 'application/octet-stream',
       },
       body: content,

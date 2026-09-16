@@ -45,7 +45,7 @@ export function MesocyclesView() {
   const [importMsg, setImportMsg] = useState('')
   const [showMuscleGroups, setShowMuscleGroups] = useState(false)
 
-  const live = mesocycles.filter((m) => !m.deleted).sort((a, b) => b.createdAt - a.createdAt)
+  const live = [...mesocycles].sort((a, b) => b.createdAt - a.createdAt)
   const hasAny = live.length > 0
 
   function startCreate() {
@@ -58,6 +58,14 @@ export function MesocyclesView() {
 
   function patchDraft(fn: (d: Draft) => Draft) {
     setDraft((d) => (d ? fn(d) : d))
+  }
+
+  function patchDay(dayIdx: number, fn: (day: MesoTemplateDay) => MesoTemplateDay) {
+    patchDraft((d) => ({ ...d, days: d.days.map((day, i) => (i === dayIdx ? fn(day) : day)) }))
+  }
+
+  function patchExercise(dayIdx: number, exIdx: number, patch: Partial<MesoTemplateExercise>) {
+    patchDay(dayIdx, (day) => ({ ...day, exercises: day.exercises.map((ex, j) => (j === exIdx ? { ...ex, ...patch } : ex)) }))
   }
 
   function saveDraft() {
@@ -100,12 +108,7 @@ export function MesocyclesView() {
 
   function addExercise(name: string) {
     if (pickerDay == null) return
-    patchDraft((d) => ({
-      ...d,
-      days: d.days.map((day, i) =>
-        i !== pickerDay ? day : { ...day, exercises: [...day.exercises, { id: uid(), name, sets: 3 } as MesoTemplateExercise] },
-      ),
-    }))
+    patchDay(pickerDay, (day) => ({ ...day, exercises: [...day.exercises, { id: uid(), name, sets: 3 }] }))
     setPickerDay(null)
   }
 
@@ -179,12 +182,7 @@ export function MesocyclesView() {
               class="text-input"
               type="text"
               value={day.label}
-              onInput={(e) =>
-                patchDraft((d) => ({
-                  ...d,
-                  days: d.days.map((dd, i) => (i !== dayIdx ? dd : { ...dd, label: (e.target as HTMLInputElement).value })),
-                }))
-              }
+              onInput={(e) => patchDay(dayIdx, (dd) => ({ ...dd, label: (e.target as HTMLInputElement).value }))}
             />
             {day.exercises.map((ex, exIdx) => (
               <div key={ex.id} class="setting-row">
@@ -197,14 +195,7 @@ export function MesocyclesView() {
                   value={ex.sets}
                   onInput={(e) => {
                     const n = parseInt((e.target as HTMLInputElement).value, 10)
-                    patchDraft((d) => ({
-                      ...d,
-                      days: d.days.map((dd, i) =>
-                        i !== dayIdx
-                          ? dd
-                          : { ...dd, exercises: dd.exercises.map((e2, j) => (j !== exIdx ? e2 : { ...e2, sets: Number.isFinite(n) ? n : e2.sets })) },
-                      ),
-                    }))
+                    if (Number.isFinite(n) && n >= 1) patchExercise(dayIdx, exIdx, { sets: n })
                   }}
                 />
                 <input
@@ -212,24 +203,11 @@ export function MesocyclesView() {
                   type="text"
                   placeholder="reps 8-12"
                   value={repRangeText(ex.repTarget)}
-                  onInput={(e) => {
-                    const repTarget = parseRepRange((e.target as HTMLInputElement).value)
-                    patchDraft((d) => ({
-                      ...d,
-                      days: d.days.map((dd, i) =>
-                        i !== dayIdx ? dd : { ...dd, exercises: dd.exercises.map((e2, j) => (j !== exIdx ? e2 : { ...e2, repTarget })) },
-                      ),
-                    }))
-                  }}
+                  onInput={(e) => patchExercise(dayIdx, exIdx, { repTarget: parseRepRange((e.target as HTMLInputElement).value) })}
                 />
                 <button
                   class="icon-btn danger"
-                  onClick={() =>
-                    patchDraft((d) => ({
-                      ...d,
-                      days: d.days.map((dd, i) => (i !== dayIdx ? dd : { ...dd, exercises: dd.exercises.filter((_, j) => j !== exIdx) })),
-                    }))
-                  }
+                  onClick={() => patchDay(dayIdx, (dd) => ({ ...dd, exercises: dd.exercises.filter((_, j) => j !== exIdx) }))}
                 >
                   ✕
                 </button>

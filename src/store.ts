@@ -104,12 +104,30 @@ export function subscribe(fn: () => void) {
   }
 }
 
+let liveCacheSrc: Stored | null = null
+let liveCache: Stored = state
+
+/** `state` with tombstoned (`deleted: true`) workouts and mesocycles removed. Cached per state identity. */
+function liveState(): Stored {
+  if (liveCacheSrc !== state) {
+    liveCacheSrc = state
+    liveCache = {
+      ...state,
+      workouts: state.workouts.filter((w) => !w.deleted),
+      mesocycles: state.mesocycles.filter((m) => !m.deleted),
+    }
+  }
+  return liveCache
+}
+
+/** Reactive read for views. Tombstones are filtered out; use `getState()` for the raw lists when writing. */
 export function useStore(): Stored {
   const [, force] = useState(0)
   useEffect(() => subscribe(() => force((n) => n + 1)), [])
-  return state
+  return liveState()
 }
 
+/** Raw state including tombstones. Writers and sync must start from this, never from `useStore()`. */
 export function getState(): Stored {
   return state
 }

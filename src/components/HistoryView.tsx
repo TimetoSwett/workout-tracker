@@ -61,12 +61,8 @@ export function HistoryView() {
 
   function deleteWorkout(id: string) {
     if (!confirm('Delete this workout?')) return
-    const existing = getState().workouts.find((w) => w.id === id)
-    if (existing) {
-      setWorkouts(getState().workouts.map((w) => (w.id === id ? { ...w, deleted: true, updatedAt: Date.now() } : w)))
-    } else {
-      setWorkouts(getState().workouts.filter((w) => w.id !== id))
-    }
+    // Tombstone rather than remove, so the delete propagates through sync.
+    setWorkouts(getState().workouts.map((w) => (w.id === id ? { ...w, deleted: true, updatedAt: Date.now() } : w)))
     if (settings.dropboxToken) sync()
   }
 

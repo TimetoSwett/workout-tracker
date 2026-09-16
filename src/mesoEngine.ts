@@ -1,4 +1,4 @@
-import type { LoggedExercise, LoggedSet, Mesocycle, Workout } from './types'
+import type { LoggedExercise, LoggedSet, Mesocycle, MesoTemplateExercise, Workout } from './types'
 import { MUSCLE_GROUPS } from './types'
 
 export function muscleGroupName(id: number, overrides: Record<number, string> | undefined): string {
@@ -26,6 +26,11 @@ export function mesoPosition(meso: Mesocycle, workouts: Workout[]): MesoPosition
 
 const WEIGHT_INCREMENT = 5
 const DELOAD_FACTOR = 0.6
+const PLATE_STEP = 2.5
+
+function roundToPlate(w: number): number {
+  return Math.round(w / PLATE_STEP) * PLATE_STEP
+}
 
 function lastPerformance(templateExerciseId: string, workouts: Workout[]): LoggedExercise | null {
   for (let i = workouts.length - 1; i >= 0; i--) {
@@ -37,19 +42,24 @@ function lastPerformance(templateExerciseId: string, workouts: Workout[]): Logge
 }
 
 function nextTarget(
-  templateExerciseId: string,
-  repTarget: [number, number] | undefined,
+  tex: MesoTemplateExercise,
   sortedWorkouts: Workout[],
   isDeload: boolean,
 ): { weight: number | null; reps: number | null } {
+  const { repTarget } = tex
   const targetReps = repTarget?.[1] ?? repTarget?.[0] ?? null
-  const last = lastPerformance(templateExerciseId, sortedWorkouts)
+  const last = lastPerformance(tex.id, sortedWorkouts)
   if (!last) return { weight: null, reps: targetReps }
   const lastWeights = last.sets.map((s) => s.weight).filter((w): w is number => w != null)
   const lastWeight = lastWeights.length ? Math.max(...lastWeights) : null
   if (lastWeight == null) return { weight: null, reps: targetReps }
-  if (isDeload) return { weight: Math.round(lastWeight * DELOAD_FACTOR), reps: repTarget?.[0] ?? targetReps }
-  const hitAll = targetReps != null && last.sets.every((s) => s.status !== 'skipped' && (s.reps ?? 0) >= targetReps)
+  if (isDeload) return { weight: roundToPlate(lastWeight * DELOAD_FACTOR), reps: repTarget?.[0] ?? targetReps }
+  // Finishing a workout drops unlogged sets, so also require the planned set count:
+  // one logged set that hit its reps is not a completed prescription.
+  const hitAll =
+    targetReps != null &&
+    last.sets.length >= tex.sets &&
+    last.sets.every((s) => s.status !== 'skipped' && (s.reps ?? 0) >= targetReps)
   return { weight: hitAll ? lastWeight + WEIGHT_INCREMENT : lastWeight, reps: targetReps }
 }
 
@@ -64,7 +74,7 @@ export function generateWorkoutExercises(meso: Mesocycle, position: MesoPosition
     const setCount = Math.max(1, tex.sets)
     const sets: LoggedSet[] = Array.from({ length: setCount }, () => {
       if (position.isFirstWeek) return { weight: null, reps: null, done: false }
-      const { weight, reps } = nextTarget(tex.id, tex.repTarget, relevant, position.isDeload)
+      const { weight, reps } = nextTarget(tex, relevant, position.isDeload)
       return { weight: null, reps: null, done: false, weightTarget: weight, repsTarget: reps }
     })
     const exercise: LoggedExercise = {

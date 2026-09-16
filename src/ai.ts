@@ -35,6 +35,8 @@ export async function aiChat(ai: AISettings, system: string, messages: ChatMessa
   }
 
   const base = (ai.baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
+  // The API key goes in a bearer header; never send it over a cleartext URL.
+  if (!/^https:\/\//i.test(base)) throw new Error('Base URL must start with https://')
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     headers: {

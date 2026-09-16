@@ -25,7 +25,7 @@ export function LogView() {
   const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
   const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
 
-  const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported && !m.deleted) ?? null
+  const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported) ?? null
 
   useEffect(() => {
     const iv = setInterval(() => setTick((n) => n + 1), 1000)

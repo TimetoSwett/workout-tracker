@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import type { AISettings, Philosophy, Profile, Workout } from '../types'
-import { setSettings, setWorkouts, useStore } from '../store'
+import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync, testToken } from '../sync'
 import { aiChat } from '../ai'
 import { PHILOSOPHY_LABELS } from '../prompts'
@@ -8,6 +8,25 @@ import { PHILOSOPHY_LABELS } from '../prompts'
 function numOrUndef(v: string): number | undefined {
   const n = parseFloat(v)
   return Number.isFinite(n) && n >= 0 ? n : undefined
+}
+
+/** Quotes a CSV cell, doubling inner quotes and neutralizing spreadsheet formula prefixes. */
+function csvCell(v: string): string {
+  const safe = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v
+  return `"${safe.replace(/"/g, '""')}"`
+}
+
+/** Minimal shape check so a malformed import can't persist data that crashes every render. */
+function isWorkoutShape(w: unknown): w is Workout {
+  if (typeof w !== 'object' || w === null) return false
+  const o = w as Record<string, unknown>
+  return (
+    typeof o.id === 'string' &&
+    o.id.length > 0 &&
+    typeof o.startedAt === 'number' &&
+    Array.isArray(o.exercises) &&
+    o.exercises.every((ex) => typeof ex === 'object' && ex !== null && Array.isArray((ex as { sets?: unknown }).sets))
+  )
 }
 
 function download(filename: string, content: string, type: string) {
@@ -77,7 +96,7 @@ export function SettingsView() {
     for (const w of workouts) {
       w.exercises.forEach((ex) => {
         ex.sets.forEach((s, i) => {
-          rows.push([w.date, `"${w.name ?? 'Workout'}"`, `"${ex.name}"`, i + 1, s.weight ?? '', s.reps ?? ''].join(','))
+          rows.push([w.date, csvCell(w.name ?? 'Workout'), csvCell(ex.name), i + 1, s.weight ?? '', s.reps ?? ''].join(','))
         })
       })
     }
@@ -87,14 +106,18 @@ export function SettingsView() {
   function importJson(file: File) {
     file.text().then((text) => {
       try {
-        const parsed = JSON.parse(text) as Workout[]
-        if (!Array.isArray(parsed)) throw new Error('expected array')
-        const ids = new Set(workouts.map((w) => w.id))
-        const merged = [...workouts, ...parsed.filter((w) => w.id && !ids.has(w.id))]
-        setWorkouts(merged)
-        flash(`Imported (${merged.length - workouts.length} new)`)
-      } catch {
-        flash('Import failed: invalid JSON')
+        const parsed: unknown = JSON.parse(text)
+        if (!Array.isArray(parsed)) throw new Error('expected an array of workouts')
+        const bad = parsed.findIndex((w) => !isWorkoutShape(w))
+        if (bad >= 0) throw new Error(`item ${bad + 1} is not a workout (needs id, startedAt, exercises[])`)
+        // Start from the raw list so existing tombstones survive the write.
+        const existing = getState().workouts
+        const ids = new Set(existing.map((w) => w.id))
+        const added = (parsed as Workout[]).filter((w) => !ids.has(w.id))
+        setWorkouts([...existing, ...added])
+        flash(`Imported (${added.length} new)`)
+      } catch (e) {
+        flash(`Import failed: ${e instanceof Error ? e.message : 'invalid JSON'}`)
       }
     })
   }
@@ -315,7 +338,7 @@ export function SettingsView() {
           class="btn danger wide"
           onClick={() => {
             if (confirm('Clear ALL local data? Cloud copy (if any) is kept.')) {
-              localStorage.removeItem('wt.v1')
+              clearHistory()
               location.reload()
             }
           }}
