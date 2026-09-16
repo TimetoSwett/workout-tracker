@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import type { ActiveWorkout, LoggedExercise, LoggedSet, Template } from '../types'
+import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout } from '../types'
 import { setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
+import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { RestTimer } from './RestTimer'
 
@@ -9,12 +10,22 @@ function nowDate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+const PUMP_VALUES = [0, 1, 2]
+const SORENESS_VALUES = [-1, 0, 1, 2, 3]
+const WORKLOAD_VALUES = [0, 1, 2, 3]
+
+type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number }>
+
 export function LogView() {
-  const { active, settings, workouts, templates } = useStore()
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const { active, settings, workouts, templates, mesocycles } = useStore()
+  const [picker, setPicker] = useState<'add' | number | null>(null)
   const [tick, setTick] = useState(0)
   const [toast, setToast] = useState('')
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
+  const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
+
+  const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported && !m.deleted) ?? null
 
   useEffect(() => {
     const iv = setInterval(() => setTick((n) => n + 1), 1000)
@@ -62,10 +73,14 @@ export function LogView() {
     )
   }
 
-  function addExercise(name: string) {
-    if (!active) return
-    patch((a) => ({ ...a, exercises: [...a.exercises, emptyExercise(name)] }))
-    setPickerOpen(false)
+  function pickExercise(name: string) {
+    if (picker === 'add') {
+      patch((a) => ({ ...a, exercises: [...a.exercises, emptyExercise(name)] }))
+    } else if (typeof picker === 'number') {
+      const idx = picker
+      patch((a) => ({ ...a, exercises: a.exercises.map((e, i) => (i !== idx ? e : emptyExercise(name))) }))
+    }
+    setPicker(null)
   }
 
   function patchSet(exIdx: number, setIdx: number, s: Partial<LoggedSet>) {
@@ -89,26 +104,55 @@ export function LogView() {
     }
   }
 
+  function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[]) {
+    const finished: Workout = { ...base, endedAt: Date.now(), updatedAt: Date.now(), muscleFeedback }
+    upsertWorkout(finished)
+    setActive(null)
+    setPendingFinish(null)
+    setFeedback(null)
+    setToast('Workout saved ✓')
+    if (settings.dropboxToken) sync()
+    setTimeout(() => setToast(''), 2500)
+  }
+
   function finish() {
     if (!active) return
-    const finished = {
+    const trimmed: ActiveWorkout = {
       ...active,
-      endedAt: Date.now(),
       exercises: active.exercises
         .map((ex) => ({ ...ex, sets: ex.sets.filter((s) => (s.weight ?? 0) > 0 || (s.reps ?? 0) > 0) }))
         .filter((ex) => ex.sets.length > 0),
-      updatedAt: Date.now(),
     }
-    if (finished.exercises.length === 0) {
+    if (trimmed.exercises.length === 0) {
       setActive(null)
       setToast('Nothing logged — workout discarded')
       return
     }
-    upsertWorkout(finished)
-    setActive(null)
-    setToast('Workout saved ✓')
-    if (settings.dropboxToken) sync()
-    setTimeout(() => setToast(''), 2500)
+    if (trimmed.mesoId) {
+      const groupIds = [...new Set(trimmed.exercises.map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
+      if (groupIds.length > 0) {
+        setPendingFinish(trimmed)
+        setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
+        return
+      }
+    }
+    saveFinished(trimmed)
+  }
+
+  function startMesoWorkout() {
+    if (!activeMeso) return
+    const pos = mesoPosition(activeMeso, workouts)
+    const exercises = generateWorkoutExercises(activeMeso, pos, workouts)
+    setActive({
+      id: uid(),
+      date: nowDate(),
+      startedAt: Date.now(),
+      name: activeMeso.days[pos.dayIndex]?.label ?? activeMeso.name,
+      exercises,
+      mesoId: activeMeso.id,
+      mesoWeek: pos.weekIndex,
+      mesoDayPosition: pos.dayIndex,
+    })
   }
 
   function saveAsTemplate() {
@@ -126,11 +170,98 @@ export function LogView() {
     setTimeout(() => setToast(''), 2500)
   }
 
+  if (feedback && pendingFinish) {
+    const groupIds = Object.keys(feedback).map(Number)
+    return (
+      <div class="view">
+        <h1>How'd it feel?</h1>
+        {groupIds.map((id) => (
+          <div key={id} class="card">
+            <h3>{muscleGroupName(id, settings.muscleGroupNames)}</h3>
+            <div class="setting-row">
+              <span class="muted small">Pump</span>
+              <div class="seg">
+                {PUMP_VALUES.map((v) => (
+                  <button
+                    key={v}
+                    class={feedback[id].pump === v ? 'active' : ''}
+                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], pump: v } } : f))}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div class="setting-row">
+              <span class="muted small">Soreness</span>
+              <div class="seg">
+                {SORENESS_VALUES.map((v) => (
+                  <button
+                    key={v}
+                    class={feedback[id].soreness === v ? 'active' : ''}
+                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], soreness: v } } : f))}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div class="setting-row">
+              <span class="muted small">Workload</span>
+              <div class="seg">
+                {WORKLOAD_VALUES.map((v) => (
+                  <button
+                    key={v}
+                    class={feedback[id].workload === v ? 'active' : ''}
+                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], workload: v } } : f))}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+        <div class="btn-row">
+          <button
+            class="btn primary wide"
+            onClick={() => saveFinished(pendingFinish, groupIds.map((id) => ({ muscleGroupId: id, ...feedback[id] })))}
+          >
+            Save workout
+          </button>
+          <button class="btn ghost wide" onClick={() => saveFinished(pendingFinish)}>
+            Skip feedback
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (!active) {
     return (
       <div class="view">
         <h1>Ready to train?</h1>
-        <button class="btn primary big" onClick={() => startWorkout()}>
+        {activeMeso && (
+          <div class="card">
+            <h3>{activeMeso.name}</h3>
+            {(() => {
+              const pos = mesoPosition(activeMeso, workouts)
+              const day = activeMeso.days[pos.dayIndex]
+              return (
+                <>
+                  <div class="muted small">
+                    Week {pos.weekIndex + 1}/{activeMeso.weeksPlanned} — {day?.label ?? 'Day'}
+                    {pos.isDeload ? ' (deload)' : ''}
+                  </div>
+                  <button class="btn primary big" onClick={startMesoWorkout}>
+                    Start {day?.label ?? 'workout'}
+                  </button>
+                </>
+              )
+            })()}
+          </div>
+        )}
+        <button class={`btn big wide ${activeMeso ? 'ghost' : 'primary'}`} onClick={() => startWorkout()}>
           Start empty workout
         </button>
         {templates.length > 0 && (
@@ -181,13 +312,18 @@ export function LogView() {
         <div key={ex.id} class="card exercise-card">
           <div class="exercise-head">
             <span class="exercise-name">{ex.name}</span>
-            <button
-              class="icon-btn danger"
-              title="Remove exercise"
-              onClick={() => patch((a) => ({ ...a, exercises: a.exercises.filter((_, i) => i !== exIdx) }))}
-            >
-              ✕
-            </button>
+            <div class="btn-row" style={{ margin: 0 }}>
+              <button class="icon-btn" title="Swap exercise (just for today)" onClick={() => setPicker(exIdx)}>
+                ⇄
+              </button>
+              <button
+                class="icon-btn danger"
+                title="Remove exercise"
+                onClick={() => patch((a) => ({ ...a, exercises: a.exercises.filter((_, i) => i !== exIdx) }))}
+              >
+                ✕
+              </button>
+            </div>
           </div>
           <div class="set-grid">
             <div class="set-row set-labels">
@@ -205,6 +341,7 @@ export function LogView() {
                   inputMode="decimal"
                   min="0"
                   step="2.5"
+                  placeholder={s.weightTarget != null ? String(s.weightTarget) : undefined}
                   value={s.weight ?? ''}
                   onInput={(e) => patchSet(exIdx, setIdx, { weight: numOrNull((e.target as HTMLInputElement).value) })}
                 />
@@ -213,6 +350,7 @@ export function LogView() {
                   type="number"
                   inputMode="numeric"
                   min="0"
+                  placeholder={s.repsTarget != null ? String(s.repsTarget) : undefined}
                   value={s.reps ?? ''}
                   onInput={(e) => patchSet(exIdx, setIdx, { reps: numOrNull((e.target as HTMLInputElement).value) })}
                 />
@@ -242,7 +380,7 @@ export function LogView() {
         </div>
       ))}
 
-      <button class="btn wide" onClick={() => setPickerOpen(true)}>
+      <button class="btn wide" onClick={() => setPicker('add')}>
         ＋ Add exercise
       </button>
 
@@ -278,7 +416,7 @@ export function LogView() {
         />
       )}
 
-      {pickerOpen && <ExercisePicker onPick={addExercise} onClose={() => setPickerOpen(false)} />}
+      {picker != null && <ExercisePicker onPick={pickExercise} onClose={() => setPicker(null)} />}
       {toast && <div class="toast">{toast}</div>}
     </div>
   )

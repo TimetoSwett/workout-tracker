@@ -12,11 +12,15 @@ function startOfWeek(d: Date): Date {
   return c
 }
 
+const PAGE_SIZE = 30
+
 export function HistoryView() {
   const { workouts, settings, templates } = useStore()
   const [openId, setOpenId] = useState<string | null>(null)
+  const [visible, setVisible] = useState(PAGE_SIZE)
 
   const sorted = useMemo(() => [...workouts].sort((a, b) => b.startedAt - a.startedAt), [workouts])
+  const shown = sorted.slice(0, visible)
 
   const weeks = useMemo(() => {
     const byWeek = new Map<string, number>()
@@ -117,7 +121,7 @@ export function HistoryView() {
         </div>
       )}
 
-      {sorted.map((w) => (
+      {shown.map((w) => (
         <div key={w.id} class="card workout-card">
           <button class="workout-head" onClick={() => setOpenId(openId === w.id ? null : w.id)}>
             <div>
@@ -157,6 +161,12 @@ export function HistoryView() {
           )}
         </div>
       ))}
+
+      {sorted.length > visible && (
+        <button class="btn ghost wide" onClick={() => setVisible((v) => v + PAGE_SIZE)}>
+          Load more ({sorted.length - visible} more)
+        </button>
+      )}
     </div>
   )
 }

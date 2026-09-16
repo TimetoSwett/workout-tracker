@@ -1,4 +1,9 @@
 import type { LoggedExercise, LoggedSet, Mesocycle, Workout } from './types'
+import { MUSCLE_GROUPS } from './types'
+
+export function muscleGroupName(id: number, overrides: Record<number, string> | undefined): string {
+  return overrides?.[id] ?? MUSCLE_GROUPS.find((g) => g.id === id)?.name ?? `Muscle ${id}`
+}
 
 export interface MesoPosition {
   weekIndex: number

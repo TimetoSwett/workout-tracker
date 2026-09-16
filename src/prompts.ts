@@ -1,4 +1,5 @@
 import type { Philosophy, Profile, Settings, Workout } from './types'
+import { muscleGroupName } from './mesoEngine'
 
 export function volumeOf(w: Workout): number {
   return w.exercises.reduce(
@@ -22,13 +23,30 @@ export function compileWorkouts(workouts: Workout[], settings: Settings): string
   lines.push(`Workouts (${workouts.length}), oldest first:`)
   for (const w of workouts) {
     const dur = w.endedAt ? ` (${durationMin(w)} min)` : ''
-    lines.push(`\n## ${w.date} — ${w.name ?? 'Workout'}${dur}`)
+    const meso = w.mesoId ? ` [meso week ${(w.mesoWeek ?? 0) + 1}, day ${(w.mesoDayPosition ?? 0) + 1}]` : ''
+    lines.push(`\n## ${w.date} — ${w.name ?? 'Workout'}${dur}${meso}`)
     for (const ex of w.exercises) {
       const sets = ex.sets
-        .map((s) => `${s.weight ?? '?'}${settings.units}x${s.reps ?? '?'}`)
+        .map((s) => {
+          const actual = `${s.weight ?? '?'}${settings.units}x${s.reps ?? '?'}`
+          const hasTarget = s.weightTarget != null || s.repsTarget != null
+          return hasTarget ? `${actual} (target ${s.weightTarget ?? '?'}${settings.units}x${s.repsTarget ?? '?'})` : actual
+        })
         .join(', ')
       lines.push(`- ${ex.name}: ${sets}`)
       if (ex.notes) lines.push(`  notes: ${ex.notes}`)
+    }
+    if (w.muscleFeedback?.length) {
+      const feedback = w.muscleFeedback
+        .map((f) => {
+          const parts: string[] = []
+          if (f.pump != null) parts.push(`pump ${f.pump}`)
+          if (f.soreness != null) parts.push(`soreness ${f.soreness}`)
+          if (f.workload != null) parts.push(`workload ${f.workload}`)
+          return `${muscleGroupName(f.muscleGroupId, settings.muscleGroupNames)}: ${parts.join(', ')}`
+        })
+        .join(' · ')
+      lines.push(`Muscle feedback: ${feedback}`)
     }
     if (w.notes) lines.push(`Session notes: ${w.notes}`)
   }

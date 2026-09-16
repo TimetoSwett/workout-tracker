@@ -3,7 +3,7 @@ import type { Mesocycle, MesoPriority, MesoTemplateDay, MesoTemplateExercise } f
 import { MUSCLE_GROUPS } from '../types'
 import { getState, setHistory, setSettings, uid, upsertMesocycle, useStore } from '../store'
 import { parseRpExport } from '../rpImport'
-import { mesoPosition } from '../mesoEngine'
+import { mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker } from './ExercisePicker'
 
 type PriorityType = MesoPriority['type']
@@ -36,10 +36,6 @@ function parseRepRange(v: string): [number, number] | undefined {
 
 function repRangeText(r: [number, number] | undefined): string {
   return r ? `${r[0]}-${r[1]}` : ''
-}
-
-function muscleGroupName(id: number, overrides: Record<number, string> | undefined): string {
-  return overrides?.[id] ?? MUSCLE_GROUPS.find((g) => g.id === id)?.name ?? `Muscle ${id}`
 }
 
 export function MesocyclesView() {
