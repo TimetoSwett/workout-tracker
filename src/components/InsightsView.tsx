@@ -3,6 +3,7 @@ import type { Philosophy } from '../types'
 import { setSettings, useStore } from '../store'
 import { aiChat } from '../ai'
 import { PHILOSOPHY_LABELS, coachSystem, compileWorkouts } from '../prompts'
+import { getMetrics } from '../metricsStore'
 
 const TIMEFRAMES = [2, 4, 8, 12]
 
@@ -30,7 +31,7 @@ export function InsightsView() {
     try {
       const reply = await aiChat(
         ai,
-        coachSystem(settings.philosophy, settings.profile, settings) +
+        coachSystem(settings.philosophy, settings.profile, settings, getMetrics()) +
           '\n\n# WORKOUT DATA\n\n' +
           compileWorkouts(recent, settings),
         messages,

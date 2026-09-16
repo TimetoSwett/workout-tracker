@@ -5,8 +5,9 @@ import { LogView } from './components/LogView'
 import { HistoryView } from './components/HistoryView'
 import { InsightsView } from './components/InsightsView'
 import { SettingsView } from './components/SettingsView'
+import { BodyView } from './components/BodyView'
 
-type Tab = 'log' | 'history' | 'insights' | 'settings'
+type Tab = 'log' | 'history' | 'insights' | 'body' | 'settings'
 
 export function App() {
   const [tab, setTab] = useState<Tab>('log')
@@ -22,6 +23,7 @@ export function App() {
         {tab === 'log' && <LogView />}
         {tab === 'history' && <HistoryView />}
         {tab === 'insights' && <InsightsView />}
+        {tab === 'body' && <BodyView />}
         {tab === 'settings' && <SettingsView />}
       </main>
       <nav class="tabbar">
@@ -33,6 +35,9 @@ export function App() {
         </button>
         <button class={tab === 'insights' ? 'active' : ''} onClick={() => setTab('insights')}>
           <span class="tab-icon">🧠</span>Insights
+        </button>
+        <button class={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>
+          <span class="tab-icon">⚖️</span>Body
         </button>
         <button class={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
           <span class="tab-icon">⚙️</span>Settings
