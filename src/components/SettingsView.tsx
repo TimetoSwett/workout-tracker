@@ -1,8 +1,14 @@
 import { useState } from 'preact/hooks'
-import type { AISettings, Workout } from '../types'
+import type { AISettings, Philosophy, Profile, Workout } from '../types'
 import { setSettings, setWorkouts, useStore } from '../store'
 import { sync, testToken } from '../sync'
 import { aiChat } from '../ai'
+import { PHILOSOPHY_LABELS } from '../prompts'
+
+function numOrUndef(v: string): number | undefined {
+  const n = parseFloat(v)
+  return Number.isFinite(n) && n >= 0 ? n : undefined
+}
 
 function download(filename: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }))
@@ -21,6 +27,10 @@ export function SettingsView() {
   )
   const [status, setStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
+
+  function updateProfile(patch: Partial<Profile>) {
+    setSettings({ ...settings, profile: { ...settings.profile, ...patch } })
+  }
 
   function flash(msg: string) {
     setStatus(msg)
@@ -225,6 +235,58 @@ export function SettingsView() {
         <button class="btn wide" onClick={saveAI}>
           Save & test AI
         </button>
+      </div>
+
+      <div class="card">
+        <h3>Coaching</h3>
+        <div class="setting-row">
+          <span>Philosophy</span>
+          <select
+            class="select-input"
+            value={settings.philosophy}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                philosophy: (e.target as HTMLSelectElement).value as Philosophy,
+              })
+            }
+          >
+            {(Object.entries(PHILOSOPHY_LABELS) as [Philosophy, string][]).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div class="setting-row">
+          <span>Age</span>
+          <input
+            class="set-input narrow"
+            type="number"
+            inputMode="numeric"
+            min="0"
+            value={settings.profile?.age ?? ''}
+            onInput={(e) => updateProfile({ age: numOrUndef((e.target as HTMLInputElement).value) })}
+          />
+        </div>
+        <div class="setting-row">
+          <span>Bodyweight ({settings.units})</span>
+          <input
+            class="set-input narrow"
+            type="number"
+            inputMode="decimal"
+            min="0"
+            value={settings.profile?.bodyweight ?? ''}
+            onInput={(e) => updateProfile({ bodyweight: numOrUndef((e.target as HTMLInputElement).value) })}
+          />
+        </div>
+        <input
+          class="text-input"
+          type="text"
+          placeholder="Injuries / limitations (optional)"
+          value={settings.profile?.injuries ?? ''}
+          onInput={(e) => updateProfile({ injuries: (e.target as HTMLInputElement).value })}
+        />
       </div>
 
       <div class="card">

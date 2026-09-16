@@ -720,6 +720,17 @@ button {
   font-weight: 600;
 }
 
+.select-input {
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card-2);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-family: inherit;
+  max-width: 180px;
+}
+
 .file-btn {
   position: relative;
   overflow: hidden;

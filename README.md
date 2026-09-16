@@ -8,7 +8,7 @@ A free, offline-first PWA for logging workouts. Data syncs to **your own Dropbox
 
 - **Log** — set-by-set weight/reps entry, exercise autocomplete, workout templates, rest timer with vibration, duration tracking
 - **History** — weekly volume chart, best lifts (PRs), full workout details, CSV/JSON export
-- **Insights** — AI analysis of your last 2–12 weeks: volume trends, muscle balance, progression, deload suggestions, plus follow-up chat
+- **Insights** — AI analysis of your last 2–12 weeks with a selectable coaching philosophy (**Balanced**, **Powerlifting**, **Hypertrophy**, or **Hybrid** strength + size), always-on recovery monitoring that recommends rest days/deloads when your logs show fatigue, an optional athlete profile (age, bodyweight, injuries) for tailored advice, and follow-up chat
 - **Sync** — all workouts stored as plain JSONL in your Dropbox at `/Apps/Workout Tracker/workouts.jsonl` — your data, readable by anything
 - **Offline-first** — works with zero signal in the gym; syncs when back online
 
@@ -36,6 +36,8 @@ In Settings → AI provider, either:
 
 - **Anthropic (Claude)** — API key from [console.anthropic.com](https://console.anthropic.com), or
 - **OpenAI-compatible** — any provider with a `/chat/completions` endpoint (NanoGPT, OpenRouter, etc.): enter base URL, model, and key
+
+In Settings → Coaching, optionally enter your age, bodyweight, and injuries/limitations — the coach factors these into every analysis.
 
 ## Development
 

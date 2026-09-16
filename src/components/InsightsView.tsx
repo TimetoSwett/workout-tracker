@@ -1,7 +1,8 @@
 import { useState } from 'preact/hooks'
-import { useStore } from '../store'
+import type { Philosophy } from '../types'
+import { setSettings, useStore } from '../store'
 import { aiChat } from '../ai'
-import { COACH_SYSTEM, compileWorkouts } from '../prompts'
+import { PHILOSOPHY_LABELS, coachSystem, compileWorkouts } from '../prompts'
 
 const TIMEFRAMES = [2, 4, 8, 12]
 
@@ -27,7 +28,13 @@ export function InsightsView() {
     setBusy(true)
     setError(null)
     try {
-      const reply = await aiChat(ai, COACH_SYSTEM + '\n\n# WORKOUT DATA\n\n' + compileWorkouts(recent, settings), messages)
+      const reply = await aiChat(
+        ai,
+        coachSystem(settings.philosophy, settings.profile, settings) +
+          '\n\n# WORKOUT DATA\n\n' +
+          compileWorkouts(recent, settings),
+        messages,
+      )
       setTurns([...messages, { role: 'assistant', content: reply }])
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -68,8 +75,8 @@ export function InsightsView() {
     <div class="view">
       <h1>Insights</h1>
       <div class="card analyze-bar">
-        <label class="muted">Review last</label>
         <div class="timeframe-row">
+          <label class="muted">Review last</label>
           {TIMEFRAMES.map((t) => (
             <button key={t} class={`btn small ${t === weeks ? 'primary' : 'ghost'}`} onClick={() => setWeeks(t)}>
               {t}w
@@ -78,6 +85,25 @@ export function InsightsView() {
           <button class="btn primary" onClick={analyze} disabled={busy}>
             {busy ? 'Analyzing…' : 'Analyze'}
           </button>
+        </div>
+        <div class="setting-row">
+          <span class="muted">Philosophy</span>
+          <select
+            class="select-input"
+            value={settings.philosophy}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                philosophy: (e.target as HTMLSelectElement).value as Philosophy,
+              })
+            }
+          >
+            {(Object.entries(PHILOSOPHY_LABELS) as [Philosophy, string][]).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
         </div>
         <div class="muted small">{recent.length} workouts in range</div>
       </div>

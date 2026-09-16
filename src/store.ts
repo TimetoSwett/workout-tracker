@@ -9,7 +9,7 @@ export interface Stored {
 }
 
 const KEY = 'wt.v1'
-const DEFAULT_SETTINGS: Settings = { units: 'lbs', restSeconds: 90 }
+const DEFAULT_SETTINGS: Settings = { units: 'lbs', restSeconds: 90, philosophy: 'balanced' }
 
 function load(): Stored {
   try {

@@ -43,9 +43,19 @@ export interface AISettings {
   baseUrl?: string
 }
 
+export type Philosophy = 'balanced' | 'powerlifting' | 'hypertrophy' | 'hybrid'
+
+export interface Profile {
+  age?: number
+  bodyweight?: number
+  injuries?: string
+}
+
 export interface Settings {
   units: 'lbs' | 'kg'
   restSeconds: number
+  philosophy: Philosophy
+  profile?: Profile
   dropboxToken?: string
   ai?: AISettings
   lastSyncAt?: number
