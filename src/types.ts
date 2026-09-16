@@ -122,8 +122,16 @@ export type Philosophy = 'balanced' | 'powerlifting' | 'hypertrophy' | 'hybrid'
 
 export interface Profile {
   age?: number
+  height?: number
   bodyweight?: number
   injuries?: string
+}
+
+export type GoalType = 'cut' | 'maintain' | 'bulk'
+
+export interface Goal {
+  type: GoalType
+  ratePerWeek?: number
 }
 
 export interface Settings {
@@ -131,10 +139,22 @@ export interface Settings {
   restSeconds: number
   philosophy: Philosophy
   profile?: Profile
+  goal?: Goal
   dropboxToken?: string
   ai?: AISettings
   lastSyncAt?: number
   muscleGroupNames?: Record<number, string>
+}
+
+export interface DailyMetric {
+  date: string
+  weight?: number
+  bodyFat?: number
+  muscle?: number
+  steps?: number
+  sleepMin?: number
+  updatedAt: number
+  source?: 'samsung' | 'manual'
 }
 
 export interface ActiveWorkout {

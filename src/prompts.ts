@@ -1,5 +1,6 @@
-import type { Philosophy, Profile, Settings, Workout } from './types'
+import type { DailyMetric, Philosophy, Profile, Settings, Workout } from './types'
 import { muscleGroupName } from './mesoEngine'
+import { compileMetrics, nutritionBlock } from './nutrition'
 
 export function volumeOf(w: Workout): number {
   return w.exercises.reduce(
@@ -94,7 +95,12 @@ function profileBlock(profile: Profile | undefined, settings: Settings): string 
   return lines.join('\n')
 }
 
-export function coachSystem(philosophy: Philosophy, profile: Profile | undefined, settings: Settings): string {
+export function coachSystem(
+  philosophy: Philosophy,
+  profile: Profile | undefined,
+  settings: Settings,
+  metrics?: DailyMetric[],
+): string {
   return `You are an expert strength training coach reviewing logged workout data.
 The user's workouts are provided as structured logs (weight x reps per set).
 
@@ -108,7 +114,7 @@ When analyzing:
 ${philosophyBlock(philosophy)}
 
 ${RECOVERY_BLOCK}
-${profileBlock(profile, settings)}
+${profileBlock(profile, settings)}${nutritionBlock(settings.goal, profile, settings)}${metrics ? compileMetrics(metrics, settings) : ''}
 
 Be specific and reference actual numbers from the logs. Use markdown with short sections and bullet points.
 Keep it actionable — no generic filler. If data seems inconsistent or incomplete, note it briefly and work with what's there.`

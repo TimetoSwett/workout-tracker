@@ -1,7 +1,9 @@
 import { useState } from 'preact/hooks'
-import type { AISettings, Philosophy, Profile, Workout } from '../types'
+import type { AISettings, Goal, Philosophy, Profile, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync, testToken } from '../sync'
+import { syncMetrics } from '../metricsSync'
+import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
 import { PHILOSOPHY_LABELS } from '../prompts'
 
@@ -177,7 +179,9 @@ export function SettingsView() {
           <button
             class="btn"
             disabled={!settings.dropboxToken}
-            onClick={() => sync().then((err) => flash(err ?? 'Synced ✓'))}
+            onClick={() =>
+              Promise.all([sync(), syncMetrics()]).then(([a, b]) => flash(a ?? b ?? 'Synced ✓'))
+            }
           >
             Sync now
           </button>
@@ -293,6 +297,17 @@ export function SettingsView() {
           />
         </div>
         <div class="setting-row">
+          <span>Height ({settings.units === 'lbs' ? 'in' : 'cm'})</span>
+          <input
+            class="set-input narrow"
+            type="number"
+            inputMode="decimal"
+            min="0"
+            value={settings.profile?.height ?? ''}
+            onInput={(e) => updateProfile({ height: numOrUndef((e.target as HTMLInputElement).value) })}
+          />
+        </div>
+        <div class="setting-row">
           <span>Bodyweight ({settings.units})</span>
           <input
             class="set-input narrow"
@@ -303,6 +318,46 @@ export function SettingsView() {
             onInput={(e) => updateProfile({ bodyweight: numOrUndef((e.target as HTMLInputElement).value) })}
           />
         </div>
+        <div class="setting-row">
+          <span>Goal</span>
+          <select
+            class="select-input"
+            value={settings.goal?.type ?? 'maintain'}
+            onChange={(e) => {
+              const type = (e.target as HTMLSelectElement).value as Goal['type']
+              setSettings({
+                ...settings,
+                goal: type === 'maintain' ? { type } : { type, ratePerWeek: settings.goal?.ratePerWeek },
+              })
+            }}
+          >
+            <option value="cut">Cut (lose fat)</option>
+            <option value="maintain">Maintain</option>
+            <option value="bulk">Bulk (gain)</option>
+          </select>
+        </div>
+        {settings.goal && settings.goal.type !== 'maintain' && (
+          <div class="setting-row">
+            <span>Target rate ({settings.units}/week)</span>
+            <input
+              class="set-input narrow"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.1"
+              value={settings.goal.ratePerWeek ?? ''}
+              onInput={(e) =>
+                setSettings({
+                  ...settings,
+                  goal: {
+                    type: settings.goal!.type,
+                    ratePerWeek: numOrUndef((e.target as HTMLInputElement).value),
+                  },
+                })
+              }
+            />
+          </div>
+        )}
         <input
           class="text-input"
           type="text"
@@ -310,6 +365,39 @@ export function SettingsView() {
           value={settings.profile?.injuries ?? ''}
           onInput={(e) => updateProfile({ injuries: (e.target as HTMLInputElement).value })}
         />
+      </div>
+
+      <div class="card">
+        <h3>Health data (Samsung Health)</h3>
+        <p class="muted small">
+          Samsung Health app → Settings → Download personal data → export as CSV. Import weight, steps, and
+          sleep CSVs or the whole zip. Re-import anytime — duplicates merge.
+        </p>
+        <label class="btn ghost wide file-btn">
+          Import Samsung Health CSV / zip
+          <input
+            type="file"
+            accept=".csv,.zip"
+            multiple
+            hidden
+            onChange={async (e) => {
+              const input = e.target as HTMLInputElement
+              const files = Array.from(input.files ?? [])
+              if (!files.length) return
+              const { importSamsungHealth } = await import('../healthImport')
+              const res = await importSamsungHealth(files, settings.units)
+              input.value = ''
+              flash(
+                `${res.days.added} new days, ${res.days.updated} updated (${res.files.length} files recognized)` +
+                  (res.errors.length ? ` — issues: ${res.errors[0]}` : ''),
+              )
+              if (settings.dropboxToken) {
+                const { syncMetrics } = await import('../metricsSync')
+                void syncMetrics()
+              }
+            }}
+          />
+        </label>
       </div>
 
       <div class="card">
@@ -339,6 +427,7 @@ export function SettingsView() {
           onClick={() => {
             if (confirm('Clear ALL local data? Cloud copy (if any) is kept.')) {
               clearHistory()
+              clearMetrics()
               location.reload()
             }
           }}

@@ -6,15 +6,20 @@ import { HistoryView } from './components/HistoryView'
 import { InsightsView } from './components/InsightsView'
 import { SettingsView } from './components/SettingsView'
 import { MesocyclesView } from './components/MesocyclesView'
+import { BodyView } from './components/BodyView'
+import { syncMetrics } from './metricsSync'
 
-type Tab = 'log' | 'history' | 'insights' | 'meso' | 'settings'
+type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'settings'
 
 export function App() {
   const [tab, setTab] = useState<Tab>('log')
   const { settings } = useStore()
 
   useEffect(() => {
-    if (settings.dropboxToken) sync()
+    if (settings.dropboxToken) {
+      sync()
+      syncMetrics()
+    }
   }, [])
 
   return (
@@ -23,6 +28,7 @@ export function App() {
         {tab === 'log' && <LogView />}
         {tab === 'history' && <HistoryView />}
         {tab === 'insights' && <InsightsView />}
+        {tab === 'body' && <BodyView />}
         {tab === 'meso' && <MesocyclesView />}
         {tab === 'settings' && <SettingsView />}
       </main>
@@ -33,11 +39,14 @@ export function App() {
         <button class={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
           <span class="tab-icon">📊</span>History
         </button>
+        <button class={tab === 'meso' ? 'active' : ''} onClick={() => setTab('meso')}>
+          <span class="tab-icon">📅</span>Plan
+        </button>
         <button class={tab === 'insights' ? 'active' : ''} onClick={() => setTab('insights')}>
           <span class="tab-icon">🧠</span>Insights
         </button>
-        <button class={tab === 'meso' ? 'active' : ''} onClick={() => setTab('meso')}>
-          <span class="tab-icon">📅</span>Plan
+        <button class={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>
+          <span class="tab-icon">⚖️</span>Body
         </button>
         <button class={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
           <span class="tab-icon">⚙️</span>Settings

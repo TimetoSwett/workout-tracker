@@ -8,7 +8,8 @@ A free, offline-first PWA for logging workouts. Data syncs to **your own Dropbox
 
 - **Log** — set-by-set weight/reps entry, exercise autocomplete, workout templates, rest timer with vibration, duration tracking
 - **History** — weekly volume chart, best lifts (PRs), full workout details, CSV/JSON export
-- **Insights** — AI analysis of your last 2–12 weeks with a selectable coaching philosophy (**Balanced**, **Powerlifting**, **Hypertrophy**, or **Hybrid** strength + size), always-on recovery monitoring that recommends rest days/deloads when your logs show fatigue, an optional athlete profile (age, bodyweight, injuries) for tailored advice, and follow-up chat
+- **Body** — weight/body-fat trends, steps and sleep charts (from Samsung Health CSV imports or manual entry), synced to Dropbox as `metrics.jsonl`
+- **Insights** — AI analysis of your last 2–12 weeks with a selectable coaching philosophy (**Balanced**, **Powerlifting**, **Hypertrophy**, or **Hybrid** strength + size), always-on recovery monitoring that recommends rest days/deloads when your logs show fatigue, calorie/macro prescriptions when you set a goal (cut/maintain/bulk), an optional athlete profile (age, height, bodyweight, injuries) for tailored advice, and follow-up chat
 - **Sync** — all workouts stored as plain JSONL in your Dropbox at `/Apps/Workout Tracker/workouts.jsonl` — your data, readable by anything
 - **Offline-first** — works with zero signal in the gym; syncs when back online
 
