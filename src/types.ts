@@ -145,6 +145,9 @@ export interface ActiveWorkout {
   exercises: LoggedExercise[]
   restEndsAt?: number
   restTotal?: number
+  mesoId?: string
+  mesoWeek?: number
+  mesoDayPosition?: number
 }
 
 export const EXERCISE_PRESETS: string[] = [

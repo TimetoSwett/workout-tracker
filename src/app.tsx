@@ -5,8 +5,9 @@ import { LogView } from './components/LogView'
 import { HistoryView } from './components/HistoryView'
 import { InsightsView } from './components/InsightsView'
 import { SettingsView } from './components/SettingsView'
+import { MesocyclesView } from './components/MesocyclesView'
 
-type Tab = 'log' | 'history' | 'insights' | 'settings'
+type Tab = 'log' | 'history' | 'insights' | 'meso' | 'settings'
 
 export function App() {
   const [tab, setTab] = useState<Tab>('log')
@@ -22,6 +23,7 @@ export function App() {
         {tab === 'log' && <LogView />}
         {tab === 'history' && <HistoryView />}
         {tab === 'insights' && <InsightsView />}
+        {tab === 'meso' && <MesocyclesView />}
         {tab === 'settings' && <SettingsView />}
       </main>
       <nav class="tabbar">
@@ -33,6 +35,9 @@ export function App() {
         </button>
         <button class={tab === 'insights' ? 'active' : ''} onClick={() => setTab('insights')}>
           <span class="tab-icon">🧠</span>Insights
+        </button>
+        <button class={tab === 'meso' ? 'active' : ''} onClick={() => setTab('meso')}>
+          <span class="tab-icon">📅</span>Plan
         </button>
         <button class={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
           <span class="tab-icon">⚙️</span>Settings
