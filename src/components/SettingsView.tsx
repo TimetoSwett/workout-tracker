@@ -15,9 +15,9 @@ function download(filename: string, content: string, type: string) {
 
 export function SettingsView() {
   const { settings, workouts } = useStore()
-  const [token, setToken] = useState(settings.dropboxToken ?? '')
+  const [token, setToken] = useState('')
   const [ai, setAi] = useState<AISettings>(
-    settings.ai ?? { provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: '', baseUrl: '' },
+    settings.ai ? { ...settings.ai, apiKey: '' } : { provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: '', baseUrl: '' },
   )
   const [status, setStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
@@ -28,20 +28,30 @@ export function SettingsView() {
   }
 
   async function testDropbox() {
-    if (!token.trim()) return flash('Enter a token first')
-    const err = await testToken(token.trim())
+    const t = token.trim() || settings.dropboxToken
+    if (!t) return flash('Enter a token first')
+    const err = await testToken(t)
     flash(err ?? 'Dropbox token works ✓')
     if (!err) {
-      setSettings({ ...settings, dropboxToken: token.trim() })
+      if (token.trim()) {
+        setSettings({ ...settings, dropboxToken: token.trim() })
+        setToken('')
+      }
       void sync()
     }
   }
 
   async function saveAI() {
-    setSettings({ ...settings, ai: { ...ai, apiKey: ai.apiKey.trim() } })
-    if (!ai.apiKey.trim()) return flash('AI settings saved (no key)')
+    const key = ai.apiKey.trim() || settings.ai?.apiKey
+    if (!key) {
+      setSettings({ ...settings, ai: { ...ai, apiKey: '' } })
+      return flash('AI settings saved (no key)')
+    }
+    const next = { ...ai, apiKey: key }
     try {
-      const reply = await aiChat({ ...ai, apiKey: ai.apiKey.trim() }, 'Reply with exactly: OK', [{ role: 'user', content: 'ping' }])
+      const reply = await aiChat(next, 'Reply with exactly: OK', [{ role: 'user', content: 'ping' }])
+      setSettings({ ...settings, ai: next })
+      setAi({ ...ai, apiKey: '' })
       flash(`AI works ✓ (${reply.slice(0, 40)})`)
     } catch (e) {
       flash(`AI error: ${e instanceof Error ? e.message : String(e)}`)
@@ -123,7 +133,7 @@ export function SettingsView() {
         <input
           class="text-input"
           type="password"
-          placeholder="Access token"
+          placeholder={settings.dropboxToken ? '•••• saved — enter to replace' : 'Access token'}
           value={token}
           onInput={(e) => setToken((e.target as HTMLInputElement).value)}
         />
@@ -208,7 +218,7 @@ export function SettingsView() {
         <input
           class="text-input"
           type="password"
-          placeholder="API key"
+          placeholder={settings.ai?.apiKey ? '•••• saved — enter to replace' : 'API key'}
           value={ai.apiKey}
           onInput={(e) => setAi({ ...ai, apiKey: (e.target as HTMLInputElement).value })}
         />
