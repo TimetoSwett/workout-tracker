@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import type { CoachMessage, CoachThread, Goal, Philosophy, Profile } from '../types'
+import type { CoachMessage, CoachThread, Goal, Philosophy, Profile, Workout } from '../types'
 import { setSettings, useStore } from '../store'
 import { aiChat } from '../ai'
 import { MEMORY_SYSTEM, PHILOSOPHY_LABELS, coachSystem, compileWorkouts } from '../prompts'
@@ -91,6 +91,14 @@ export function CoachView() {
     }
   }
 
+  /** Workouts inside a thread's review window. Derived from the thread itself, never
+   *  from `active` — `analyze()` starts a new thread and runs in the same tick, before
+   *  the activeId state update lands, so reading `active` here sends an empty log. */
+  function windowFor(thread: CoachThread): Workout[] {
+    const from = Date.now() - thread.weeks * 7 * 864e5
+    return workouts.filter((w) => w.startedAt >= from).sort((a, b) => a.startedAt - b.startedAt)
+  }
+
   async function run(thread: CoachThread, history: CoachMessage[], userMsg: CoachMessage, isAnalysis: boolean) {
     if (!ai) return
     setBusy(true)
@@ -101,7 +109,7 @@ export function CoachView() {
         ai,
         coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) +
           '\n\n# WORKOUT DATA\n\n' +
-          compileWorkouts(recent, settings, mesocycles),
+          compileWorkouts(windowFor(thread), settings, mesocycles),
         history.concat(userMsg).map((m) => ({ role: m.role, content: m.content })),
       )
       const replyMsg: CoachMessage = { role: 'assistant', content: reply, at: Date.now() }
@@ -150,6 +158,14 @@ export function CoachView() {
       philosophy: settings.philosophy,
       weeks: 4,
       messages: [],
+    }
+    if (windowFor(thread).length === 0) {
+      setError(
+        workouts.length === 0
+          ? 'No workouts logged yet — log a session, or import your RP history from the Plan tab.'
+          : `No workouts in the last ${thread.weeks} weeks. Log a session or ask a question directly instead.`,
+      )
+      return
     }
     setActiveId(thread.id)
     const msg: CoachMessage = {
