@@ -178,6 +178,7 @@ export interface CoachThread {
   philosophy: Philosophy
   weeks: number
   messages: CoachMessage[]
+  deleted?: boolean
 }
 
 export interface CoachMemory {

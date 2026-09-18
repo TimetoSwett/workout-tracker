@@ -36,8 +36,9 @@ export function subscribeCoach(fn: () => void) {
   }
 }
 
+/** Live threads only. Tombstones stay in `data.threads` so deletes can propagate through sync. */
 export function getThreads(): CoachThread[] {
-  return data.threads
+  return data.threads.filter((t) => !t.deleted)
 }
 
 export function getMemory(): CoachMemory | null {
@@ -52,8 +53,17 @@ export function upsertThread(t: CoachThread) {
   save()
 }
 
+/**
+ * Soft delete. A hard delete is undone by the next sync: the thread still exists in
+ * the remote coach.jsonl, and merge-by-id has nothing local to compare it against, so
+ * it comes straight back. The tombstone carries a newer updatedAt and wins instead.
+ */
 export function deleteThread(id: string) {
-  data.threads = data.threads.filter((t) => t.id !== id)
+  const t = data.threads.find((x) => x.id === id)
+  if (!t) return
+  t.deleted = true
+  t.messages = []
+  t.updatedAt = Date.now()
   save()
 }
 
