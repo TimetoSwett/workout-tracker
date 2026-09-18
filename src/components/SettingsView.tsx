@@ -47,6 +47,7 @@ export function SettingsView() {
     settings.ai ? { ...settings.ai, apiKey: '' } : { provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: '', baseUrl: '' },
   )
   const [status, setStatus] = useState('')
+  const [dbxStatus, setDbxStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
 
   function updateProfile(patch: Partial<Profile>) {
@@ -58,11 +59,16 @@ export function SettingsView() {
     setTimeout(() => setStatus(''), 4000)
   }
 
+  function flashDbx(msg: string) {
+    setDbxStatus(msg)
+    setTimeout(() => setDbxStatus(''), 5000)
+  }
+
   async function testDropbox() {
     const t = token.trim() || settings.dropboxToken
-    if (!t) return flash('Enter a token first')
+    if (!t) return flashDbx('Enter a token first')
     const err = await testToken(t)
-    flash(err ?? 'Dropbox token works ✓')
+    flashDbx(err ?? 'Dropbox token works ✓')
     if (!err) {
       if (token.trim()) {
         setSettings({ ...settings, dropboxToken: token.trim() })
@@ -180,18 +186,25 @@ export function SettingsView() {
             class="btn"
             disabled={!settings.dropboxToken}
             onClick={() =>
-              Promise.all([sync(), syncMetrics()]).then(([a, b]) => flash(a ?? b ?? 'Synced ✓'))
+              Promise.all([sync(), syncMetrics()]).then(([a, b]) => flashDbx(a ?? b ?? 'Synced ✓'))
             }
           >
             Sync now
           </button>
+          {dbxStatus && <span class="muted small">{dbxStatus}</span>}
         </div>
         <button class="btn ghost wide" onClick={() => setShowHelp(!showHelp)}>
           {showHelp ? 'Hide' : 'How do I get a token?'}
         </button>
         {showHelp && (
           <ol class="help-list">
-            <li>Go to dropbox.com/developers/apps and click "Create app".</li>
+            <li>
+              Go to{' '}
+              <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noreferrer">
+                dropbox.com/developers/apps
+              </a>{' '}
+              and click "Create app".
+            </li>
             <li>Choose "App folder" access (the app only sees its own folder) and name it "Workout Tracker".</li>
             <li>In the app's Permissions tab, grant <b>files.content.read</b> and <b>files.content.write</b>.</li>
             <li>In the Settings tab, click "Generate access token" and paste it above.</li>

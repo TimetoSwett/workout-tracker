@@ -753,6 +753,10 @@ button {
   color: var(--text);
 }
 
+.help-list a {
+  color: var(--accent);
+}
+
 .help-list li {
   margin-bottom: 6px;
 }
