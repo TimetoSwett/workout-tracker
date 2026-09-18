@@ -18,7 +18,7 @@ function uid(): string {
 }
 
 export function CoachView() {
-  const { workouts, settings } = useStore()
+  const { workouts, settings, mesocycles } = useStore()
   const [, force] = useState(0)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [input, setInput] = useState('')
@@ -101,7 +101,7 @@ export function CoachView() {
         ai,
         coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) +
           '\n\n# WORKOUT DATA\n\n' +
-          compileWorkouts(recent, settings),
+          compileWorkouts(recent, settings, mesocycles),
         history.concat(userMsg).map((m) => ({ role: m.role, content: m.content })),
       )
       const replyMsg: CoachMessage = { role: 'assistant', content: reply, at: Date.now() }

@@ -1,6 +1,20 @@
-import type { CoachMemory, DailyMetric, Philosophy, Profile, Settings, Workout } from './types'
+import type { CoachMemory, DailyMetric, LoggedExercise, Mesocycle, Philosophy, Profile, Settings, Workout } from './types'
 import { muscleGroupName } from './mesoEngine'
 import { compileMetrics, nutritionBlock } from './nutrition'
+
+/** Heaviest completed set of an exercise by estimated 1RM (Epley), for load-trend reporting. */
+function bestSet(ex: LoggedExercise): { w: number; r: number; e1rm: number } | undefined {
+  let best: { w: number; r: number; e1rm: number } | undefined
+  for (const s of ex.sets) {
+    if (s.status === 'skipped') continue
+    const w = s.weight
+    const r = s.reps
+    if (w == null || r == null || r <= 0) continue
+    const e1rm = w * (1 + r / 30)
+    if (!best || e1rm > best.e1rm) best = { w, r, e1rm }
+  }
+  return best
+}
 
 export function volumeOf(w: Workout): number {
   return w.exercises.reduce(
@@ -18,17 +32,72 @@ export function durationMin(w: Workout): number {
   return Math.round((end - w.startedAt) / 60000)
 }
 
-export function compileWorkouts(workouts: Workout[], settings: Settings): string {
+export function compileWorkouts(workouts: Workout[], settings: Settings, mesocycles: Mesocycle[] = []): string {
   const lines: string[] = []
   lines.push(`Units: ${settings.units}`)
-  lines.push(`Workouts (${workouts.length}), oldest first:`)
+  lines.push(`Workouts (${workouts.length}), oldest first.`)
+  lines.push(
+    'Effort metrics: hard-set counts and rep distribution are primary; load trend (top set weight) matters for strength blocks. Do NOT compare raw tonnage (weight x reps summed) across phases — strength blocks run fewer, heavier sets by design and that is not detraining.',
+  )
+  const mesoById = new Map(mesocycles.map((m) => [m.id, m]))
+
+  // Per-exercise load trends (best set, est 1RM via Epley, first → last in
+  // this window) so the coach sees progression directly.
+  const byExercise = new Map<
+    string,
+    { first?: { w: number; r: number; e1rm: number }; last?: { w: number; r: number; e1rm: number } }
+  >()
+  for (const w of workouts) {
+    for (const ex of w.exercises) {
+      const best = bestSet(ex)
+      if (!best) continue
+      const e = byExercise.get(ex.name) ?? {}
+      if (!e.first) e.first = best
+      e.last = best
+      byExercise.set(ex.name, e)
+    }
+  }
+  const trends = [...byExercise.entries()]
+    .filter(([, e]) => e.first && e.last && e.first.e1rm !== e.last.e1rm)
+    .map(
+      ([name, e]) =>
+        `${name}: est 1RM ${Math.round(e.first!.e1rm)} → ${Math.round(e.last!.e1rm)} ${settings.units} (${e.first!.w}x${e.first!.r} → ${e.last!.w}x${e.last!.r})`,
+    )
+  if (trends.length) {
+    lines.push('\n# LOAD TRENDS (best set per exercise, est 1RM, first → last in this window)')
+    lines.push(...trends)
+  }
+
+  const announced = new Set<string>()
   for (const w of workouts) {
     const dur = w.endedAt ? ` (${durationMin(w)} min)` : ''
     const meso = w.mesoId ? ` [meso week ${(w.mesoWeek ?? 0) + 1}, day ${(w.mesoDayPosition ?? 0) + 1}]` : ''
     lines.push(`\n## ${w.date} — ${w.name ?? 'Workout'}${dur}${meso}`)
+    if (w.mesoId && !announced.has(w.mesoId)) {
+      announced.add(w.mesoId)
+      const m = mesoById.get(w.mesoId)
+      if (m) {
+        lines.push(
+          `Block: ${m.name} — ${m.weeksPlanned} weeks${m.deloadWeek != null ? `, deload on week ${m.deloadWeek + 1}` : ''}${m.goal ? `, intent: ${m.goal}` : ''}`,
+        )
+      }
+    }
+    if (w.activity) {
+      lines.push(`Activity: ${w.activity.type}, ${w.activity.durationMin} min (non-lifting session)`)
+    }
+    let hardSets = 0
+    const repBuckets = { '1-5': 0, '6-10': 0, '11-15': 0, '16+': 0 }
     for (const ex of w.exercises) {
       const sets = ex.sets
         .map((s) => {
+          if ((s.reps ?? 0) > 0) {
+            hardSets++
+            const r = s.reps!
+            if (r <= 5) repBuckets['1-5']++
+            else if (r <= 10) repBuckets['6-10']++
+            else if (r <= 15) repBuckets['11-15']++
+            else repBuckets['16+']++
+          }
           const actual = `${s.weight ?? '?'}${settings.units}x${s.reps ?? '?'}`
           const hasTarget = s.weightTarget != null || s.repsTarget != null
           return hasTarget ? `${actual} (target ${s.weightTarget ?? '?'}${settings.units}x${s.repsTarget ?? '?'})` : actual
@@ -36,6 +105,11 @@ export function compileWorkouts(workouts: Workout[], settings: Settings): string
         .join(', ')
       lines.push(`- ${ex.name}: ${sets}`)
       if (ex.notes) lines.push(`  notes: ${ex.notes}`)
+    }
+    if (w.exercises.length > 0) {
+      lines.push(
+        `Session summary: ${hardSets} hard sets; reps ${repBuckets['1-5']}x1-5 / ${repBuckets['6-10']}x6-10 / ${repBuckets['11-15']}x11-15 / ${repBuckets['16+']}x16+`,
+      )
     }
     if (w.muscleFeedback?.length) {
       const feedback = w.muscleFeedback

@@ -40,6 +40,10 @@ export interface Workout {
   status?: 'complete' | 'partial' | 'skipped'
   bodyweight?: number
   muscleFeedback?: MuscleFeedback[]
+  activity?: {
+    type: string
+    durationMin: number
+  }
 }
 
 export interface MuscleGroup {
@@ -96,6 +100,7 @@ export interface Mesocycle {
   updatedAt: number
   deleted?: boolean
   imported?: boolean
+  goal?: string
 }
 
 export interface TemplateExercise {
