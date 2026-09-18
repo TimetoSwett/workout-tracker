@@ -38,11 +38,11 @@ export function App() {
         <button class={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>
           <span class="tab-icon">🏋️</span>Log
         </button>
-        <button class={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
-          <span class="tab-icon">📊</span>History
-        </button>
         <button class={tab === 'meso' ? 'active' : ''} onClick={() => setTab('meso')}>
           <span class="tab-icon">📅</span>Plan
+        </button>
+        <button class={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
+          <span class="tab-icon">📊</span>History
         </button>
         <button class={tab === 'insights' ? 'active' : ''} onClick={() => setTab('insights')}>
           <span class="tab-icon">🧠</span>Coach
