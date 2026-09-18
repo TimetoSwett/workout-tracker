@@ -3,11 +3,12 @@ import { useStore } from './store'
 import { sync } from './sync'
 import { LogView } from './components/LogView'
 import { HistoryView } from './components/HistoryView'
-import { InsightsView } from './components/InsightsView'
+import { CoachView } from './components/CoachView'
 import { SettingsView } from './components/SettingsView'
 import { MesocyclesView } from './components/MesocyclesView'
 import { BodyView } from './components/BodyView'
 import { syncMetrics } from './metricsSync'
+import { syncCoach } from './coachStore'
 
 type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'settings'
 
@@ -19,6 +20,7 @@ export function App() {
     if (settings.dropboxToken) {
       sync()
       syncMetrics()
+      syncCoach()
     }
   }, [])
 
@@ -27,7 +29,7 @@ export function App() {
       <main>
         {tab === 'log' && <LogView />}
         {tab === 'history' && <HistoryView />}
-        {tab === 'insights' && <InsightsView />}
+        {tab === 'insights' && <CoachView />}
         {tab === 'body' && <BodyView />}
         {tab === 'meso' && <MesocyclesView />}
         {tab === 'settings' && <SettingsView />}
@@ -43,7 +45,7 @@ export function App() {
           <span class="tab-icon">📅</span>Plan
         </button>
         <button class={tab === 'insights' ? 'active' : ''} onClick={() => setTab('insights')}>
-          <span class="tab-icon">🧠</span>Insights
+          <span class="tab-icon">🧠</span>Coach
         </button>
         <button class={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>
           <span class="tab-icon">⚖️</span>Body

@@ -140,10 +140,11 @@ export interface Settings {
   philosophy: Philosophy
   profile?: Profile
   goal?: Goal
+  coachNotes?: string
+  muscleGroupNames?: Record<number, string>
   dropboxToken?: string
   ai?: AISettings
   lastSyncAt?: number
-  muscleGroupNames?: Record<number, string>
 }
 
 export interface DailyMetric {
@@ -156,6 +157,28 @@ export interface DailyMetric {
   sleepMin?: number
   updatedAt: number
   source?: 'samsung' | 'manual'
+}
+
+export interface CoachMessage {
+  role: 'user' | 'assistant'
+  content: string
+  at: number
+}
+
+export interface CoachThread {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  philosophy: Philosophy
+  weeks: number
+  messages: CoachMessage[]
+}
+
+export interface CoachMemory {
+  id: string
+  facts: string[]
+  updatedAt: number
 }
 
 export interface ActiveWorkout {
@@ -173,7 +196,7 @@ export interface ActiveWorkout {
 
 export const EXERCISE_PRESETS: string[] = [
   'Back Squat', 'Front Squat', 'Bench Press', 'Incline Bench Press',
-  'Overhead Press', 'Deadlift', 'Romanian Deadlift', 'Barbell Row',
+  'Smith Machine Bench Press', 'Overhead Press', 'Deadlift', 'Romanian Deadlift', 'Barbell Row',
   'Pull-Up', 'Chin-Up', 'Lat Pulldown', 'Seated Cable Row',
   'Dumbbell Bench Press', 'Incline Dumbbell Press', 'Dumbbell Shoulder Press',
   'Dumbbell Row', 'Dumbbell Curl', 'Hammer Curl', 'Barbell Curl',

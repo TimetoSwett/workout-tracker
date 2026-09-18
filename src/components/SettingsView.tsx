@@ -1,16 +1,11 @@
 import { useState } from 'preact/hooks'
-import type { AISettings, Goal, Philosophy, Profile, Workout } from '../types'
+import type { AISettings, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync, testToken } from '../sync'
 import { syncMetrics } from '../metricsSync'
+import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
-import { PHILOSOPHY_LABELS } from '../prompts'
-
-function numOrUndef(v: string): number | undefined {
-  const n = parseFloat(v)
-  return Number.isFinite(n) && n >= 0 ? n : undefined
-}
 
 /** Quotes a CSV cell, doubling inner quotes and neutralizing spreadsheet formula prefixes. */
 function csvCell(v: string): string {
@@ -49,10 +44,6 @@ export function SettingsView() {
   const [status, setStatus] = useState('')
   const [dbxStatus, setDbxStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
-
-  function updateProfile(patch: Partial<Profile>) {
-    setSettings({ ...settings, profile: { ...settings.profile, ...patch } })
-  }
 
   function flash(msg: string) {
     setStatus(msg)
@@ -186,7 +177,9 @@ export function SettingsView() {
             class="btn"
             disabled={!settings.dropboxToken}
             onClick={() =>
-              Promise.all([sync(), syncMetrics()]).then(([a, b]) => flashDbx(a ?? b ?? 'Synced ✓'))
+              Promise.all([sync(), syncMetrics(), syncCoach()]).then(
+                ([a, b, c]) => flashDbx(a ?? b ?? c ?? 'Synced ✓'),
+              )
             }
           >
             Sync now
@@ -275,109 +268,6 @@ export function SettingsView() {
         <button class="btn wide" onClick={saveAI}>
           Save & test AI
         </button>
-      </div>
-
-      <div class="card">
-        <h3>Coaching</h3>
-        <div class="setting-row">
-          <span>Philosophy</span>
-          <select
-            class="select-input"
-            value={settings.philosophy}
-            onChange={(e) =>
-              setSettings({
-                ...settings,
-                philosophy: (e.target as HTMLSelectElement).value as Philosophy,
-              })
-            }
-          >
-            {(Object.entries(PHILOSOPHY_LABELS) as [Philosophy, string][]).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div class="setting-row">
-          <span>Age</span>
-          <input
-            class="set-input narrow"
-            type="number"
-            inputMode="numeric"
-            min="0"
-            value={settings.profile?.age ?? ''}
-            onInput={(e) => updateProfile({ age: numOrUndef((e.target as HTMLInputElement).value) })}
-          />
-        </div>
-        <div class="setting-row">
-          <span>Height ({settings.units === 'lbs' ? 'in' : 'cm'})</span>
-          <input
-            class="set-input narrow"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            value={settings.profile?.height ?? ''}
-            onInput={(e) => updateProfile({ height: numOrUndef((e.target as HTMLInputElement).value) })}
-          />
-        </div>
-        <div class="setting-row">
-          <span>Bodyweight ({settings.units})</span>
-          <input
-            class="set-input narrow"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            value={settings.profile?.bodyweight ?? ''}
-            onInput={(e) => updateProfile({ bodyweight: numOrUndef((e.target as HTMLInputElement).value) })}
-          />
-        </div>
-        <div class="setting-row">
-          <span>Goal</span>
-          <select
-            class="select-input"
-            value={settings.goal?.type ?? 'maintain'}
-            onChange={(e) => {
-              const type = (e.target as HTMLSelectElement).value as Goal['type']
-              setSettings({
-                ...settings,
-                goal: type === 'maintain' ? { type } : { type, ratePerWeek: settings.goal?.ratePerWeek },
-              })
-            }}
-          >
-            <option value="cut">Cut (lose fat)</option>
-            <option value="maintain">Maintain</option>
-            <option value="bulk">Bulk (gain)</option>
-          </select>
-        </div>
-        {settings.goal && settings.goal.type !== 'maintain' && (
-          <div class="setting-row">
-            <span>Target rate ({settings.units}/week)</span>
-            <input
-              class="set-input narrow"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.1"
-              value={settings.goal.ratePerWeek ?? ''}
-              onInput={(e) =>
-                setSettings({
-                  ...settings,
-                  goal: {
-                    type: settings.goal!.type,
-                    ratePerWeek: numOrUndef((e.target as HTMLInputElement).value),
-                  },
-                })
-              }
-            />
-          </div>
-        )}
-        <input
-          class="text-input"
-          type="text"
-          placeholder="Injuries / limitations (optional)"
-          value={settings.profile?.injuries ?? ''}
-          onInput={(e) => updateProfile({ injuries: (e.target as HTMLInputElement).value })}
-        />
       </div>
 
       <div class="card">

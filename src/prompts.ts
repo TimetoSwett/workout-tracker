@@ -1,4 +1,4 @@
-import type { DailyMetric, Philosophy, Profile, Settings, Workout } from './types'
+import type { CoachMemory, DailyMetric, Philosophy, Profile, Settings, Workout } from './types'
 import { muscleGroupName } from './mesoEngine'
 import { compileMetrics, nutritionBlock } from './nutrition'
 
@@ -95,27 +95,63 @@ function profileBlock(profile: Profile | undefined, settings: Settings): string 
   return lines.join('\n')
 }
 
+const COACH_PERSONA = `You are the user's ongoing strength & conditioning coach. You help them pursue
+their fitness goals — strength, muscle, health — using current peer-reviewed
+research on strength training and hypertrophy (volume landmarks, proximity to
+failure, frequency effects, minimum effective dose). When evidence is mixed or
+thin, say so instead of guessing.
+
+You are reviewing logged workout data (weight x reps per set) and, when provided,
+health metrics and notes from the user. This is a continuing relationship: you
+may be given remembered facts from earlier conversations — treat those as
+context you know about this athlete, and keep them consistent.
+
+When analyzing logs:
+- Compute weekly set counts and volume per muscle group / movement pattern
+- Identify progression (or stagnation) on key lifts
+- Check balance (push vs pull, quads vs hamstrings, etc.) and flag gaps
+- Suggest concrete changes: volume adjustments, exercise swaps, deload timing
+- Answer general training/nutrition questions directly — analysis is not required
+  for you to be useful`
+
+function memoryBlock(memory: CoachMemory | null): string {
+  if (!memory?.facts?.length) return ''
+  return `\n# REMEMBERED FACTS ABOUT THIS ATHLETE (from earlier conversations)\n${memory.facts.map((f) => `- ${f}`).join('\n')}`
+}
+
+function notesBlock(notes: string | undefined): string {
+  if (!notes?.trim()) return ''
+  return `\n# NOTES FROM THE USER (always respect)\n${notes.trim()}`
+}
+
 export function coachSystem(
   philosophy: Philosophy,
   profile: Profile | undefined,
   settings: Settings,
   metrics?: DailyMetric[],
+  memory?: CoachMemory | null | undefined,
 ): string {
-  return `You are an expert strength training coach reviewing logged workout data.
-The user's workouts are provided as structured logs (weight x reps per set).
-
-When analyzing:
-- Compute weekly set counts and volume per muscle group / movement pattern
-- Identify progression (or stagnation) on key lifts
-- Check balance (push vs pull, quads vs hamstrings, etc.) and flag gaps
-- Suggest concrete changes: volume adjustments, exercise swaps, deload timing
+  return `${COACH_PERSONA}
 
 # COACHING PHILOSOPHY: ${PHILOSOPHY_LABELS[philosophy].toUpperCase()}
 ${philosophyBlock(philosophy)}
 
 ${RECOVERY_BLOCK}
-${profileBlock(profile, settings)}${nutritionBlock(settings.goal, profile, settings)}${metrics ? compileMetrics(metrics, settings) : ''}
+${profileBlock(profile, settings)}${nutritionBlock(settings.goal, profile, settings)}${metrics ? compileMetrics(metrics, settings) : ''}${memoryBlock(memory ?? null)}${notesBlock(settings.coachNotes)}
 
 Be specific and reference actual numbers from the logs. Use markdown with short sections and bullet points.
 Keep it actionable — no generic filler. If data seems inconsistent or incomplete, note it briefly and work with what's there.`
 }
+
+export const MEMORY_SYSTEM = `You maintain a compact memory of facts about an athlete for their AI strength coach.
+You are given the current memory (possibly empty) and a conversation with their training data.
+Return an UPDATED list of durable facts worth remembering across future conversations.
+
+Rules:
+- Keep only stable, useful facts: training preferences, injury history, recovery patterns, life constraints, coaching decisions made, consistent behaviors
+- Drop facts that became obsolete; correct facts that were proven wrong
+- Maximum 15 facts, each one sentence, plain text
+- No numbers dumps — only remember numbers that carry meaning (e.g. "benches best with pause work", not "benched 205x5 on Sep 3")
+- If nothing new or changed, return the current list unchanged
+
+Respond with ONLY the updated facts as a JSON array of strings.`
