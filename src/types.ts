@@ -42,9 +42,28 @@ export interface Workout {
   muscleFeedback?: MuscleFeedback[]
   activity?: {
     type: string
+    /** Discipline within a type, e.g. Bouldering / Top rope for Climbing. */
+    style?: string
     durationMin: number
   }
 }
+
+/** Non-lifting sessions. Logged as a Workout carrying `activity` and no exercises,
+ *  so they sync, appear in History, and reach the coach with no separate plumbing. */
+export const ACTIVITY_TYPES: { type: string; icon: string; styles?: string[] }[] = [
+  { type: 'Climbing', icon: '🧗', styles: ['Bouldering', 'Top rope', 'Lead', 'Trad'] },
+  { type: 'Hiking', icon: '🥾' },
+  { type: 'Walking', icon: '🚶' },
+  { type: 'Running', icon: '🏃' },
+  { type: 'Cycling', icon: '🚴' },
+  { type: 'Swimming', icon: '🏊' },
+  { type: 'Rowing', icon: '🚣' },
+  { type: 'Elliptical', icon: '🌀' },
+  { type: 'Stair climber', icon: '🪜' },
+  { type: 'Yoga', icon: '🧘' },
+  { type: 'Sports', icon: '⚽' },
+  { type: 'Other', icon: '➕' },
+]
 
 export interface MuscleGroup {
   id: number

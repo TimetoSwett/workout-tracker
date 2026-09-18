@@ -7,10 +7,11 @@ import { CoachView } from './components/CoachView'
 import { SettingsView } from './components/SettingsView'
 import { MesocyclesView } from './components/MesocyclesView'
 import { BodyView } from './components/BodyView'
+import { ActivityView } from './components/ActivityView'
 import { syncMetrics } from './metricsSync'
 import { syncCoach } from './coachStore'
 
-type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'settings'
+type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'activity' | 'settings'
 
 export function App() {
   const [tab, setTab] = useState<Tab>('log')
@@ -31,6 +32,7 @@ export function App() {
         {tab === 'history' && <HistoryView />}
         {tab === 'insights' && <CoachView />}
         {tab === 'body' && <BodyView />}
+        {tab === 'activity' && <ActivityView />}
         {tab === 'meso' && <MesocyclesView />}
         {tab === 'settings' && <SettingsView />}
       </main>
@@ -46,6 +48,9 @@ export function App() {
         </button>
         <button class={tab === 'insights' ? 'active' : ''} onClick={() => setTab('insights')}>
           <span class="tab-icon">🧠</span>Coach
+        </button>
+        <button class={tab === 'activity' ? 'active' : ''} onClick={() => setTab('activity')}>
+          <span class="tab-icon">🧗</span>Activity
         </button>
         <button class={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>
           <span class="tab-icon">⚖️</span>Body

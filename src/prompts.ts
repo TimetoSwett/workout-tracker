@@ -83,7 +83,7 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
       }
     }
     if (w.activity) {
-      lines.push(`Activity: ${w.activity.type}, ${w.activity.durationMin} min (non-lifting session)`)
+      lines.push(`Activity: ${w.activity.style ? `${w.activity.type} (${w.activity.style})` : w.activity.type}, ${w.activity.durationMin} min — non-lifting session, not captured in set counts`)
     }
     let hardSets = 0
     const repBuckets = { '1-5': 0, '6-10': 0, '11-15': 0, '16+': 0 }

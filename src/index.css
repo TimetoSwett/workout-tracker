@@ -767,3 +767,35 @@ code {
   padding: 1px 5px;
   font-size: 0.85em;
 }
+
+.activity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.activity-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--card-2);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.activity-chip.active {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.activity-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
