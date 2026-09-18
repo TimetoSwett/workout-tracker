@@ -162,4 +162,41 @@ export const EXERCISE_PRESETS: string[] = [
   'Lateral Raise', 'Cable Fly', 'Chest Fly', 'Push-Up',
   'Dip', 'Plank', 'Hanging Leg Raise', 'Cable Crunch',
   'Farmer Carry', 'Kettlebell Swing', 'Cable Row', 'Machine Chest Press',
+
+  // Chest
+  'Smith Machine Bench Press', 'Smith Machine Incline Press', 'Decline Bench Press',
+  'Incline Dumbbell Fly', 'Dumbbell Pullover', 'Low-to-High Cable Fly', 'Pec Deck',
+  'Dumbbell Floor Press', 'Close Grip Bench Press',
+
+  // Back
+  'Assisted Pull-Up', 'Chest Supported Row', 'T-Bar Row', 'Single-Arm Dumbbell Row',
+  'Straight-Arm Pulldown', 'Machine Row', 'Inverted Row',
+
+  // Shoulders
+  'Barbell Shrug', 'Dumbbell Shrug', 'Machine Shoulder Press', 'Smith Machine Shoulder Press',
+  'Arnold Press', 'Cable Lateral Raise', 'Machine Lateral Raise', 'Rear Delt Fly',
+  'Cable Rear Delt Fly', 'Upright Row', 'Dumbbell Front Raise',
+
+  // Triceps
+  'Dumbbell Skull Crusher', 'EZ Bar Skull Crusher', 'Cable Overhead Triceps Extension',
+  'Machine Triceps Extension', 'Rope Pushdown', 'Single-Arm Cable Pushdown', 'Assisted Dip',
+  'Dumbbell Kickback',
+
+  // Biceps
+  'Preacher Curl', 'Machine Preacher Curl', 'EZ Bar Curl', 'Cable Curl',
+  'Incline Dumbbell Curl', 'Concentration Curl', 'Spider Curl', 'Reverse Curl',
+  'Zottman Curl', 'Cable Rope Hammer Curl',
+
+  // Forearms
+  'Wrist Curl', 'Reverse Wrist Curl', 'Cable Wrist Curl', 'Wrist Roller', 'Plate Pinch',
+
+  // Legs
+  'Hack Squat', 'Smith Machine Squat', 'Goblet Squat', 'Seated Leg Curl', 'Lying Leg Curl',
+  'Stiff-Legged Deadlift', 'Walking Lunge', 'Reverse Lunge', 'Dumbbell Step-Up',
+  'Glute Kickback', 'Cable Pull-Through', 'Sissy Squat', 'Seated Calf Raise',
+  'Standing Calf Raise', 'Single-Leg Calf Raise', 'Adductor Machine', 'Abductor Machine',
+
+  // Core
+  'Machine Crunch', 'Sit-Up', 'Ab Wheel Rollout', 'Russian Twist', 'Cable Woodchop',
+  'Dead Bug', 'Side Plank',
 ]
