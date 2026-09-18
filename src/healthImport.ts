@@ -207,31 +207,36 @@ function classify(base: string): 'weight' | 'steps' | 'sleep' | null {
   return null
 }
 
-function mergeDay(a: DailyMetric, b: DailyMetric): DailyMetric {
-  const [newer, older] = (b.updatedAt ?? 0) >= (a.updatedAt ?? 0) ? [b, a] : [a, b]
-  return {
-    date: a.date,
-    weight: newer.weight ?? older.weight,
-    bodyFat: newer.bodyFat ?? older.bodyFat,
-    muscle: newer.muscle ?? older.muscle,
-    leanMass: newer.leanMass ?? older.leanMass,
-    steps: newer.steps ?? older.steps,
-    sleepMin: newer.sleepMin ?? older.sleepMin,
-    source: newer.source ?? older.source,
-    updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
-  }
-}
 
+/**
+ * A re-import is authoritative for the fields it carries. Timestamp-based merging is
+ * wrong here: the parsed updatedAt comes from the CSV's update_time (when Samsung
+ * recorded the day), while a previous import stamped its rows with the moment the
+ * import ran — which is always later. That made a corrected re-import lose to the
+ * values it was meant to replace. Freshly parsed fields now win outright, and the
+ * row is stamped now so it also beats a stale copy in Dropbox on the next sync.
+ */
 function apply(days: ParsedDay[], counts: { added: number; updated: number }) {
   if (!days.length) return
+  const now = Date.now()
   const byDate = new Map(getMetrics().map((m) => [m.date, m]))
   for (const d of days) {
     const existing = byDate.get(d.date)
     if (existing) {
-      byDate.set(d.date, mergeDay(existing, d))
+      byDate.set(d.date, {
+        date: d.date,
+        weight: d.weight ?? existing.weight,
+        bodyFat: d.bodyFat ?? existing.bodyFat,
+        muscle: d.muscle ?? existing.muscle,
+        leanMass: d.leanMass ?? existing.leanMass,
+        steps: d.steps ?? existing.steps,
+        sleepMin: d.sleepMin ?? existing.sleepMin,
+        source: d.source ?? existing.source,
+        updatedAt: now,
+      })
       counts.updated++
     } else {
-      byDate.set(d.date, d)
+      byDate.set(d.date, { ...d, updatedAt: now })
       counts.added++
     }
   }
