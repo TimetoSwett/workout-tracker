@@ -213,7 +213,7 @@ export const EXERCISE_PRESETS: string[] = [
   'Farmer Carry', 'Kettlebell Swing', 'Cable Row', 'Machine Chest Press',
 
   // Chest
-  'Smith Machine Bench Press', 'Smith Machine Incline Press', 'Decline Bench Press',
+  'Smith Machine Incline Press', 'Decline Bench Press',
   'Incline Dumbbell Fly', 'Dumbbell Pullover', 'Low-to-High Cable Fly', 'Pec Deck',
   'Dumbbell Floor Press', 'Close Grip Bench Press',
 
