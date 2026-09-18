@@ -166,6 +166,8 @@ export interface Settings {
   goal?: Goal
   coachNotes?: string
   muscleGroupNames?: Record<number, string>
+  /** Exercises pinned to Best lifts regardless of how they rank. */
+  keyLifts?: string[]
   dropboxToken?: string
   ai?: AISettings
   lastSyncAt?: number
@@ -196,6 +198,8 @@ export interface CoachThread {
   updatedAt: number
   philosophy: Philosophy
   weeks: number
+  /** Overrides `weeks`: a single most-recent session, or the entire history. */
+  scope?: 'last' | 'all'
   messages: CoachMessage[]
   deleted?: boolean
 }

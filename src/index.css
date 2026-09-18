@@ -799,3 +799,13 @@ code {
   font-size: 1.3rem;
   line-height: 1;
 }
+
+.pin-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1rem;
+  padding: 0 2px;
+  cursor: pointer;
+  font-family: inherit;
+}

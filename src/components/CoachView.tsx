@@ -2,11 +2,19 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { CoachMessage, CoachThread, Goal, Philosophy, Profile, Workout } from '../types'
 import { setSettings, useStore } from '../store'
 import { aiChat } from '../ai'
-import { MEMORY_SYSTEM, PHILOSOPHY_LABELS, coachSystem, compileWorkouts } from '../prompts'
+import { MEMORY_SYSTEM, PHILOSOPHY_LABELS, coachSystem, compileHistorySummary, compileWorkouts } from '../prompts'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
 
-const TIMEFRAMES = [2, 4, 8, 12]
+type Win = 'last' | 'all' | number
+const WINDOWS: { key: Win; label: string }[] = [
+  { key: 'last', label: 'Last' },
+  { key: 2, label: '2w' },
+  { key: 4, label: '4w' },
+  { key: 8, label: '8w' },
+  { key: 12, label: '12w' },
+  { key: 'all', label: 'All' },
+]
 
 function numOrUndef(v: string): number | undefined {
   const n = parseFloat(v)
@@ -26,6 +34,7 @@ export function CoachView() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [showSetup, setShowSetup] = useState(false)
+  const [win, setWin] = useState<Win>(4)
 
   useEffect(() => subscribeCoach(() => force((n) => n + 1)), [])
 
@@ -43,15 +52,6 @@ export function CoachView() {
         t.messages.some((m) => m.content.toLowerCase().includes(q)),
     )
   }, [threads, search])
-
-  const cutoff = active ? Date.now() - active.weeks * 7 * 864e5 : 0
-  const recent = useMemo(
-    () =>
-      active
-        ? workouts.filter((w) => w.startedAt >= cutoff).sort((a, b) => a.startedAt - b.startedAt)
-        : [],
-    [workouts, active],
-  )
 
   function patchSettings(patch: Partial<typeof settings>) {
     setSettings({ ...settings, ...patch })
@@ -94,9 +94,23 @@ export function CoachView() {
   /** Workouts inside a thread's review window. Derived from the thread itself, never
    *  from `active` — `analyze()` starts a new thread and runs in the same tick, before
    *  the activeId state update lands, so reading `active` here sends an empty log. */
+  function windowOf(w: Win): Workout[] {
+    const sorted = [...workouts].sort((a, b) => a.startedAt - b.startedAt)
+    if (w === 'all') return sorted
+    if (w === 'last') return sorted.slice(-1)
+    const from = Date.now() - w * 7 * 864e5
+    return sorted.filter((x) => x.startedAt >= from)
+  }
+
   function windowFor(thread: CoachThread): Workout[] {
-    const from = Date.now() - thread.weeks * 7 * 864e5
-    return workouts.filter((w) => w.startedAt >= from).sort((a, b) => a.startedAt - b.startedAt)
+    return windowOf(thread.scope ?? thread.weeks)
+  }
+
+  function dataBlock(thread: CoachThread): string {
+    const ws = windowFor(thread)
+    return thread.scope === 'all'
+      ? compileHistorySummary(ws, settings)
+      : '\n\n# WORKOUT DATA\n\n' + compileWorkouts(ws, settings, mesocycles)
   }
 
   async function run(thread: CoachThread, history: CoachMessage[], userMsg: CoachMessage, isAnalysis: boolean) {
@@ -108,8 +122,7 @@ export function CoachView() {
       const reply = await aiChat(
         ai,
         coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) +
-          '\n\n# WORKOUT DATA\n\n' +
-          compileWorkouts(windowFor(thread), settings, mesocycles),
+          dataBlock(thread),
         history.concat(userMsg).map((m) => ({ role: m.role, content: m.content })),
       )
       const replyMsg: CoachMessage = { role: 'assistant', content: reply, at: Date.now() }
@@ -140,7 +153,8 @@ export function CoachView() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         philosophy: settings.philosophy,
-        weeks: 4,
+        weeks: typeof win === 'number' ? win : 4,
+        ...(typeof win === 'string' ? { scope: win } : {}),
         messages: [],
       }
       setActiveId(thread.id)
@@ -150,13 +164,16 @@ export function CoachView() {
   }
 
   function analyze() {
+    const label = WINDOWS.find((w) => w.key === win)?.label ?? '4w'
     const thread: CoachThread = {
       id: uid(),
-      title: `${settings.philosophy} review — last ${4}w`,
+      title:
+        win === 'last' ? 'Last workout review' : win === 'all' ? 'All-time review' : `Training review — ${label}`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       philosophy: settings.philosophy,
-      weeks: 4,
+      weeks: typeof win === 'number' ? win : 4,
+      ...(typeof win === 'string' ? { scope: win } : {}),
       messages: [],
     }
     if (windowFor(thread).length === 0) {
@@ -170,7 +187,12 @@ export function CoachView() {
     setActiveId(thread.id)
     const msg: CoachMessage = {
       role: 'user',
-      content: `Please review my last ${thread.weeks} weeks of training.`,
+      content:
+        win === 'last'
+          ? 'Please review my most recent workout — how did it go, and what should I adjust next session?'
+          : win === 'all'
+            ? 'Please review my whole training history: long-term trends, what has progressed, and what has stalled.'
+            : `Please review my last ${thread.weeks} weeks of training.`,
       at: Date.now(),
     }
     void run(thread, [], msg, true)
@@ -196,24 +218,39 @@ export function CoachView() {
 
       <div class="card analyze-bar">
         <div class="timeframe-row">
-          <label class="muted">Review last</label>
-          {TIMEFRAMES.map((t) => (
+          <label class="muted">Review</label>
+          {WINDOWS.map((o) => (
             <button
-              key={t}
-              class={`btn small ${active?.weeks === t ? 'primary' : 'ghost'}`}
-              onClick={() => active && upsertThread({ ...active, weeks: t })}
-              disabled={!active}
+              key={String(o.key)}
+              class={`btn small ${(active ? (active.scope ?? active.weeks) : win) === o.key ? 'primary' : 'ghost'}`}
+              onClick={() => {
+                setWin(o.key)
+                if (active) {
+                  upsertThread({
+                    ...active,
+                    weeks: typeof o.key === 'number' ? o.key : active.weeks,
+                    scope: typeof o.key === 'string' ? o.key : undefined,
+                  })
+                }
+              }}
             >
-              {t}w
+              {o.label}
             </button>
           ))}
           <button class="btn primary" onClick={analyze} disabled={busy}>
             Analyze
           </button>
         </div>
-        {active && recent.length > 0 && (
-          <div class="muted small">{recent.length} workouts in range</div>
-        )}
+        <div class="muted small">
+          {(() => {
+            const n = windowOf(active ? (active.scope ?? active.weeks) : win).length
+            const chars =
+              (active ? (active.scope ?? active.weeks) : win) === 'all'
+                ? compileHistorySummary(windowOf('all'), settings).length
+                : compileWorkouts(windowOf(active ? (active.scope ?? active.weeks) : win), settings, mesocycles).length
+            return `${n} session${n === 1 ? '' : 's'} in range · ~${Math.round((chars / 4 + 1500) / 100) / 10}k tokens per message`
+          })()}
+        </div>
       </div>
 
       {active ? (

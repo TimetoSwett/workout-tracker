@@ -229,3 +229,51 @@ Rules:
 - If nothing new or changed, return the current list unchanged
 
 Respond with ONLY the updated facts as a JSON array of strings.`
+
+/**
+ * Monthly rollup for an all-time review. Full set detail across years runs to tens of
+ * thousands of tokens and buries the trend it exists to show, so this reports shape
+ * (sessions, hard sets, rep mix) plus all-time bests instead.
+ */
+export function compileHistorySummary(workouts: Workout[], settings: Settings): string {
+  if (!workouts.length) return ''
+  const months = new Map<string, { sessions: number; sets: number; reps: number[]; heavy: number }>()
+  const best = new Map<string, { w: number; r: number; e1rm: number; date: string }>()
+  for (const w of workouts) {
+    const key = w.date.slice(0, 7)
+    const m = months.get(key) ?? { sessions: 0, sets: 0, reps: [], heavy: 0 }
+    m.sessions++
+    for (const ex of w.exercises) {
+      for (const s of ex.sets) {
+        if (s.status === 'skipped' || s.weight == null || s.reps == null || s.reps <= 0) continue
+        m.sets++
+        m.reps.push(s.reps)
+        if (s.reps <= 6) m.heavy++
+        const e1rm = s.weight * (1 + s.reps / 30)
+        const cur = best.get(ex.name)
+        if (!cur || e1rm > cur.e1rm) best.set(ex.name, { w: s.weight, r: s.reps, e1rm, date: w.date })
+      }
+    }
+    months.set(key, m)
+  }
+  const median = (xs: number[]) => {
+    if (!xs.length) return 0
+    const s = [...xs].sort((a, b) => a - b)
+    return s[Math.floor(s.length / 2)]
+  }
+  const lines = [
+    `\n# TRAINING HISTORY (monthly rollup — per-set detail omitted for length; ${workouts.length} sessions)`,
+    'month | sessions | hard sets | median reps | % sets at <=6 reps',
+  ]
+  for (const key of [...months.keys()].sort()) {
+    const m = months.get(key)!
+    const pct = m.sets ? Math.round((100 * m.heavy) / m.sets) : 0
+    lines.push(`${key} | ${m.sessions} | ${m.sets} | ${median(m.reps)} | ${pct}%`)
+  }
+  const top = [...best.entries()].sort((a, b) => b[1].e1rm - a[1].e1rm).slice(0, 20)
+  lines.push('\n# ALL-TIME BEST ESTIMATED 1RM (top 20 exercises)')
+  for (const [name, b] of top) {
+    lines.push(`${name}: ${Math.round(b.e1rm)}${settings.units} (${b.w}x${b.r} on ${b.date})`)
+  }
+  return lines.join('\n')
+}
