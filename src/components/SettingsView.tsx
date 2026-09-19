@@ -293,6 +293,7 @@ export function SettingsView() {
               input.value = ''
               flash(
                 `${res.days.added} new days, ${res.days.updated} updated (${res.files.length} files recognized)` +
+                  (res.bodyweight ? ` — bodyweight now ${res.bodyweight}${settings.units}` : '') +
                   (res.errors.length ? ` — issues: ${res.errors[0]}` : ''),
               )
               if (settings.dropboxToken) {

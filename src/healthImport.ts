@@ -1,11 +1,14 @@
 import JSZip from 'jszip'
 import type { DailyMetric } from './types'
 import { getMetrics, setMetrics } from './metricsStore'
+import { getState, setSettings } from './store'
 
 export interface ImportResult {
   files: string[]
   days: { added: number; updated: number }
   errors: string[]
+  /** Set when the import moved Profile.bodyweight, so the UI can say so. */
+  bodyweight?: number
 }
 
 const KG_TO_LB = 2.2046226
@@ -65,6 +68,17 @@ function num(v: string | undefined): number | undefined {
   if (v == null) return undefined
   const n = parseFloat(v)
   return Number.isFinite(n) && n >= 0 ? n : undefined
+}
+
+/**
+ * Signed parse, for columns where a negative value is meaningful — `source_type`
+ * marks its cross-device aggregate as -2. `num()` deliberately rejects
+ * negatives, since a weight or a step count never is one.
+ */
+function signed(v: string | undefined): number | undefined {
+  if (v == null) return undefined
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : undefined
 }
 
 function toDate(v: string | undefined): string | undefined {
@@ -144,26 +158,44 @@ function importWeightCsv(text: string, appUnits: 'lbs' | 'kg'): ParsedDay[] {
   }))
 }
 
+/** Samsung's own combined-across-devices row in step_daily_trend. */
+const STEPS_AGGREGATE_SOURCE = -2
+
+/**
+ * Samsung writes several rows per day — one per source device, plus an
+ * aggregate. Taking the max across device rows undercounts any day the watch
+ * stayed home: the phone's partial row wins and the watch's steps are dropped
+ * on the floor. The `source_type: -2` row is Samsung's own deduplicated total,
+ * the number the Health app itself displays, so it is preferred outright over
+ * any device row regardless of which is larger.
+ *
+ * Falls back to the previous max-wins behaviour per day when no aggregate row
+ * exists, or when an older export lacks the column entirely.
+ */
 function importStepsCsv(text: string): ParsedDay[] {
   const { header, rows } = parseCsv(text)
   const dI = col(header, 'day_time')
   const cI = col(header, 'count')
   const uI = col(header, 'update_time')
+  const sI = col(header, 'source_type', 'com.samsung.shealth.step_daily_trend.source_type')
   if (dI < 0 || cI < 0) return []
-  const out: ParsedDay[] = []
-  const seen = new Map<string, ParsedDay>()
+  const seen = new Map<string, { day: ParsedDay; aggregate: boolean }>()
   for (const r of rows) {
     const date = toDate(r[dI])
     const steps = num(r[cI])
     if (!date || steps == null) continue
-    // multiple rows per day (phone + watch sources, partial syncs) — keep the max
+    const aggregate = sI >= 0 && signed(r[sI]) === STEPS_AGGREGATE_SOURCE
     const cur = seen.get(date)
-    if (!cur || (cur.steps ?? 0) < steps) {
-      seen.set(date, { date, steps: Math.round(steps), updatedAt: toEpoch(r[uI]), source: 'samsung' })
+    if (cur) {
+      if (cur.aggregate && !aggregate) continue // never let a device row beat the total
+      if (cur.aggregate === aggregate && (cur.day.steps ?? 0) >= steps) continue
     }
+    seen.set(date, {
+      day: { date, steps: Math.round(steps), updatedAt: toEpoch(r[uI]), source: 'samsung' },
+      aggregate,
+    })
   }
-  out.push(...seen.values())
-  return out
+  return [...seen.values()].map((v) => v.day)
 }
 
 // Sleep sessions: sleep_duration is minutes (verified against end-start);
@@ -243,6 +275,30 @@ function apply(days: ParsedDay[], counts: { added: number; updated: number }) {
   setMetrics([...byDate.values()]) // single batched write for the whole import
 }
 
+/**
+ * Samsung's scale is the only continuously-updated bodyweight in the app. The
+ * Profile field is typed by hand once and then goes stale — the RP export
+ * carried 225 against an actual 236 — and it feeds both the coach prompt and
+ * the nutrition targets, so a stale value quietly skews advice.
+ *
+ * The latest *weighed day in the merged series* wins, not the latest row in
+ * this file, so re-importing an older export can't drag the profile backwards.
+ * Metric weights are already in app units (importWeightCsv converts), so this
+ * is a straight copy with no unit conversion.
+ */
+function syncProfileBodyweight(): number | undefined {
+  let latest: { date: string; weight: number } | undefined
+  for (const m of getMetrics()) {
+    if (m.weight == null) continue
+    if (!latest || m.date > latest.date) latest = { date: m.date, weight: m.weight }
+  }
+  if (!latest) return undefined
+  const settings = getState().settings
+  if (settings.profile?.bodyweight === latest.weight) return undefined
+  setSettings({ ...settings, profile: { ...settings.profile, bodyweight: latest.weight } })
+  return latest.weight
+}
+
 export async function importSamsungHealth(files: File[], appUnits: 'lbs' | 'kg'): Promise<ImportResult> {
   const result: ImportResult = { files: [], days: { added: 0, updated: 0 }, errors: [] }
   const entries: { name: string; text: string }[] = []
@@ -284,5 +340,6 @@ export async function importSamsungHealth(files: File[], appUnits: 'lbs' | 'kg')
   }
 
   apply(allDays, result.days)
+  result.bodyweight = syncProfileBodyweight()
   return result
 }
