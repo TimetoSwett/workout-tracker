@@ -872,12 +872,16 @@ code {
    The cover screen is narrower than the breakpoint and keeps the phone layout
    untouched — folding and unfolding just re-runs the media query.
 
-   620 rather than ~700 because an unfolded Fold reports anywhere from ~650 to
-   ~890 CSS px depending on its display-scaling setting; a threshold above that
-   range would mean the wide layout silently never appears on the device it was
-   written for.
+   Width alone can't tell the two screens apart: a cover screen at a small
+   display-scaling setting reports as many CSS px as an unfolded one at a large
+   setting, so any single threshold either misses the unfolded screen or catches
+   the folded one. Shape does distinguish them, and unlike width it doesn't move
+   with a display setting — a cover screen is always tall and narrow (~0.43
+   ratio) while an unfolded one is nearly square (~0.83-0.90). Requiring both a
+   minimum width and a squarish ratio keys the layout to the physical screen
+   rather than to a number that shifts under it.
 --------------------------------------------------------------------------- */
-@media (min-width: 620px) {
+@media (min-width: 620px) and (min-aspect-ratio: 3 / 4) {
   #app,
   .tabbar {
     max-width: 880px;
