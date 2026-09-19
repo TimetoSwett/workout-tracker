@@ -281,6 +281,54 @@ button {
   color: var(--danger);
 }
 
+/* Set-level delete. Deliberately quieter than the adjacent ✓ — same row, and a
+   mis-tap here costs logged work, so it must never read as the primary action. */
+.icon-btn.sm {
+  width: 30px;
+  height: 30px;
+  background: none;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.icon-btn.sm:hover {
+  background: var(--card-2);
+  border-color: var(--border);
+  color: var(--danger);
+}
+
+.note-input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 7px 9px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+
+.note-input::placeholder {
+  color: var(--muted);
+}
+
+.note-input:hover {
+  border-color: var(--border);
+}
+
+.note-input:focus {
+  background: var(--card-2);
+  border-color: var(--border);
+  outline: none;
+}
+
+.note-input.filled {
+  border-color: var(--border);
+}
+
 .set-grid {
   display: flex;
   flex-direction: column;
@@ -289,7 +337,7 @@ button {
 
 .set-row {
   display: grid;
-  grid-template-columns: 28px 1fr 1fr 40px;
+  grid-template-columns: 28px 1fr 1fr 40px 30px;
   gap: 6px;
   align-items: center;
 }

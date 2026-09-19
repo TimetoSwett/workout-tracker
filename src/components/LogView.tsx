@@ -94,6 +94,19 @@ export function LogView() {
     })
   }
 
+  function patchExercise(exIdx: number, e: Partial<LoggedExercise>) {
+    patch((a) => ({ ...a, exercises: a.exercises.map((ex, i) => (i !== exIdx ? ex : { ...ex, ...e })) }))
+  }
+
+  function removeSet(exIdx: number, setIdx: number) {
+    patch((a) => ({
+      ...a,
+      exercises: a.exercises.map((ex, i) =>
+        i !== exIdx ? ex : { ...ex, sets: ex.sets.filter((_, j) => j !== setIdx) },
+      ),
+    }))
+  }
+
   function completeSet(exIdx: number, setIdx: number) {
     const set = active?.exercises[exIdx]?.sets[setIdx]
     if (!set) return
@@ -331,6 +344,7 @@ export function LogView() {
               <span>{settings.units}</span>
               <span>REPS</span>
               <span />
+              <span />
             </div>
             {ex.sets.map((s, setIdx) => (
               <div key={setIdx} class={`set-row ${s.done ? 'done' : ''}`}>
@@ -361,6 +375,14 @@ export function LogView() {
                 >
                   ✓
                 </button>
+                <button
+                  class="icon-btn sm"
+                  title={`Remove set ${setIdx + 1}`}
+                  aria-label={`Remove set ${setIdx + 1}`}
+                  onClick={() => removeSet(exIdx, setIdx)}
+                >
+                  ✕
+                </button>
               </div>
             ))}
             <button
@@ -377,6 +399,13 @@ export function LogView() {
               ＋ Add set
             </button>
           </div>
+          <input
+            class={`note-input ${ex.notes ? 'filled' : ''}`}
+            type="text"
+            placeholder="Note…"
+            value={ex.notes ?? ''}
+            onInput={(e) => patchExercise(exIdx, { notes: (e.target as HTMLInputElement).value || undefined })}
+          />
         </div>
       ))}
 
