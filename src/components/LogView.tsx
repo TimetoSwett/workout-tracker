@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout } from '../types'
 import { setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
+import { dropboxConfigured } from '../dropbox'
 import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { RestTimer } from './RestTimer'
@@ -124,7 +125,7 @@ export function LogView() {
     setPendingFinish(null)
     setFeedback(null)
     setToast('Workout saved ✓')
-    if (settings.dropboxToken) sync()
+    if (dropboxConfigured(settings)) sync()
     setTimeout(() => setToast(''), 2500)
   }
 

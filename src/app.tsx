@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks'
 import { useStore } from './store'
 import { sync } from './sync'
+import { dropboxConfigured } from './dropbox'
 import { LogView } from './components/LogView'
 import { HistoryView } from './components/HistoryView'
 import { CoachView } from './components/CoachView'
@@ -18,7 +19,7 @@ export function App() {
   const { settings } = useStore()
 
   useEffect(() => {
-    if (settings.dropboxToken) {
+    if (dropboxConfigured(settings)) {
       sync()
       syncMetrics()
       syncCoach()

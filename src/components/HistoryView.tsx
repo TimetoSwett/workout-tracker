@@ -3,6 +3,7 @@ import type { Workout } from '../types'
 import { getState, setSettings, setTemplates, uid, useStore } from '../store'
 import { setWorkouts } from '../store'
 import { sync } from '../sync'
+import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
 
 function startOfWeek(d: Date): Date {
@@ -80,7 +81,7 @@ export function HistoryView() {
     if (!confirm('Delete this workout?')) return
     // Tombstone rather than remove, so the delete propagates through sync.
     setWorkouts(getState().workouts.map((w) => (w.id === id ? { ...w, deleted: true, updatedAt: Date.now() } : w)))
-    if (settings.dropboxToken) sync()
+    if (dropboxConfigured(settings)) sync()
   }
 
   function saveAsTemplate(w: Workout) {

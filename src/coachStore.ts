@@ -1,5 +1,5 @@
 import type { CoachMemory, CoachThread } from './types'
-import { dropboxDownload, dropboxUpload } from './dropbox'
+import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
 import { getState } from './store'
 
 const KEY = 'wt.coach.v1'
@@ -110,11 +110,10 @@ let syncing = false
 
 export async function syncCoach(): Promise<string | null> {
   if (syncing) return null
-  const token = getState().settings.dropboxToken
-  if (!token) return 'No Dropbox token configured'
+  if (!dropboxConfigured(getState().settings)) return 'Dropbox is not connected'
   syncing = true
   try {
-    const remote = await dropboxDownload(token, COACH_PATH)
+    const remote = await dropboxDownload(COACH_PATH)
     if (remote.error) return remote.error
     const remoteThreads = remote.content ? parseJsonl(remote.content) : []
     const remoteMemory = remote.content ? parseMemory(remote.content) : null
@@ -136,7 +135,7 @@ export async function syncCoach(): Promise<string | null> {
 
     if (remoteChanged) {
       data = { threads: mergedThreads, memory }
-      const err = await dropboxUpload(token, toJsonl(), COACH_PATH)
+      const err = await dropboxUpload(toJsonl(), COACH_PATH)
       if (err) return err
     } else if (mergedThreads !== data.threads || memory !== data.memory) {
       data = { threads: mergedThreads, memory }

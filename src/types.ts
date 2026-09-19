@@ -168,7 +168,13 @@ export interface Settings {
   muscleGroupNames?: Record<number, string>
   /** Exercises pinned to Best lifts regardless of how they rank. */
   keyLifts?: string[]
+  /** Short-lived Dropbox access token (~4h), cached and auto-renewed. */
   dropboxToken?: string
+  dropboxTokenExpiresAt?: number
+  /** Long-lived offline grant. Absent on installs set up before PKCE. */
+  dropboxRefreshToken?: string
+  /** Dropbox app key. Public by design under PKCE — there is no client secret. */
+  dropboxAppKey?: string
   ai?: AISettings
   lastSyncAt?: number
 }

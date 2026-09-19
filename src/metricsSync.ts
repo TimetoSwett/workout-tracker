@@ -1,5 +1,5 @@
 import type { DailyMetric } from './types'
-import { dropboxDownload, dropboxUpload } from './dropbox'
+import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
 import { getMetrics, setMetrics } from './metricsStore'
 import { getState } from './store'
 
@@ -42,12 +42,11 @@ let syncing = false
 
 export async function syncMetrics(): Promise<string | null> {
   if (syncing) return null
-  const token = getState().settings.dropboxToken
-  if (!token) return 'No Dropbox token configured'
+  if (!dropboxConfigured(getState().settings)) return 'Dropbox is not connected'
   syncing = true
   try {
     const local = getMetrics()
-    const remote = await dropboxDownload(token, METRICS_PATH)
+    const remote = await dropboxDownload(METRICS_PATH)
     if (remote.error) return remote.error
     const remoteMetrics = remote.content ? parseJsonl(remote.content) : []
     const byDate = new Map<string, DailyMetric>()
@@ -63,7 +62,7 @@ export async function syncMetrics(): Promise<string | null> {
         return !m || m.updatedAt !== r.updatedAt
       })
     if (changedRemote) {
-      const err = await dropboxUpload(token, toJsonl(merged), METRICS_PATH)
+      const err = await dropboxUpload(toJsonl(merged), METRICS_PATH)
       if (err) return err
     }
     setMetrics(merged)

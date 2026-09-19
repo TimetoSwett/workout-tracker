@@ -1,6 +1,6 @@
 import { getState, setHistory, setSettings } from './store'
 import type { Mesocycle, Workout } from './types'
-import { dropboxDownload, dropboxUpload } from './dropbox'
+import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
 
 const MESO_PATH = '/mesocycles.jsonl'
 
@@ -52,12 +52,12 @@ let syncing = false
 export async function sync(): Promise<string | null> {
   if (syncing) return null
   const { settings, workouts, mesocycles } = getState()
-  if (!settings.dropboxToken) return 'No Dropbox token configured'
+  if (!dropboxConfigured(settings)) return 'Dropbox is not connected'
   syncing = true
   try {
     const [remoteWorkoutsRes, remoteMesosRes] = await Promise.all([
-      dropboxDownload(settings.dropboxToken),
-      dropboxDownload(settings.dropboxToken, MESO_PATH),
+      dropboxDownload(),
+      dropboxDownload(MESO_PATH),
     ])
     if (remoteWorkoutsRes.error) return remoteWorkoutsRes.error
     if (remoteMesosRes.error) return remoteMesosRes.error
@@ -69,8 +69,8 @@ export async function sync(): Promise<string | null> {
     const { merged: mergedMesos, changedRemote: mesosChanged } = merge(mesocycles, remoteMesos, (m) => m.createdAt)
 
     const uploads: Promise<string | null>[] = []
-    if (workoutsChanged) uploads.push(dropboxUpload(settings.dropboxToken, toJsonl(mergedWorkouts)))
-    if (mesosChanged) uploads.push(dropboxUpload(settings.dropboxToken, toJsonl(mergedMesos), MESO_PATH))
+    if (workoutsChanged) uploads.push(dropboxUpload(toJsonl(mergedWorkouts)))
+    if (mesosChanged) uploads.push(dropboxUpload(toJsonl(mergedMesos), MESO_PATH))
     const errs = (await Promise.all(uploads)).filter((e): e is string => !!e)
     if (errs.length) return errs[0]
 
@@ -82,15 +82,3 @@ export async function sync(): Promise<string | null> {
   }
 }
 
-export async function testToken(token: string): Promise<string | null> {
-  try {
-    const res = await fetch('https://api.dropboxapi.com/2/users/get_current_account', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) return `Token rejected (${res.status})`
-    return null
-  } catch (e) {
-    return `Network error: ${e instanceof Error ? e.message : String(e)}`
-  }
-}

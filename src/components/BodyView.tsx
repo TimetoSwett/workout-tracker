@@ -3,6 +3,7 @@ import type { DailyMetric } from '../types'
 import { useStore } from '../store'
 import { getMetrics, subscribeMetrics, upsertMetric } from '../metricsStore'
 import { syncMetrics } from '../metricsSync'
+import { dropboxConfigured } from '../dropbox'
 
 function fmt(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
@@ -29,7 +30,7 @@ export function BodyView() {
 
   useEffect(() => subscribeMetrics(() => force((n) => n + 1)), [])
   useEffect(() => {
-    if (settings.dropboxToken) syncMetrics()
+    if (dropboxConfigured(settings)) syncMetrics()
   }, [])
 
   const metrics = getMetrics()
@@ -72,7 +73,7 @@ export function BodyView() {
     setManualWeight('')
     setManualBf('')
     flash('Saved ✓')
-    if (settings.dropboxToken) syncMetrics()
+    if (dropboxConfigured(settings)) syncMetrics()
   }
 
   const noData = metrics.length === 0

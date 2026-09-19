@@ -5,6 +5,7 @@ import { getState, setWorkouts, uid, upsertWorkout, useStore } from '../store'
 import { getMetrics, upsertMetric } from '../metricsStore'
 import { sync } from '../sync'
 import { syncMetrics } from '../metricsSync'
+import { dropboxConfigured } from '../dropbox'
 
 function isoDate(offsetDays = 0): string {
   const d = new Date()
@@ -65,7 +66,7 @@ export function ActivityView() {
     setMinutes('')
     setNote('')
     flash(`${w.name} · ${mins} min saved ✓`)
-    if (settings.dropboxToken) sync()
+    if (dropboxConfigured(settings)) sync()
   }
 
   function saveSteps() {
@@ -75,13 +76,13 @@ export function ActivityView() {
     upsertMetric({ ...existing, date: stepDate, steps: n, updatedAt: Date.now(), source: 'manual' })
     setStepCount('')
     flash(`${n.toLocaleString()} steps saved for ${prettyDate(stepDate)} ✓`)
-    if (settings.dropboxToken) syncMetrics()
+    if (dropboxConfigured(settings)) syncMetrics()
   }
 
   function removeActivity(id: string) {
     if (!confirm('Delete this activity?')) return
     setWorkouts(getState().workouts.map((w) => (w.id === id ? { ...w, deleted: true, updatedAt: Date.now() } : w)))
-    if (settings.dropboxToken) sync()
+    if (dropboxConfigured(settings)) sync()
   }
 
   return (

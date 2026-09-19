@@ -1,8 +1,9 @@
 import { useState } from 'preact/hooks'
 import type { AISettings, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
-import { sync, testToken } from '../sync'
+import { sync } from '../sync'
 import { syncMetrics } from '../metricsSync'
+import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, testConnection } from '../dropbox'
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
@@ -37,7 +38,8 @@ function download(filename: string, content: string, type: string) {
 
 export function SettingsView() {
   const { settings, workouts } = useStore()
-  const [token, setToken] = useState('')
+  const [appKey, setAppKey] = useState(settings.dropboxAppKey ?? '')
+  const [code, setCode] = useState('')
   const [ai, setAi] = useState<AISettings>(
     settings.ai ? { ...settings.ai, apiKey: '' } : { provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: '', baseUrl: '' },
   )
@@ -55,18 +57,27 @@ export function SettingsView() {
     setTimeout(() => setDbxStatus(''), 5000)
   }
 
-  async function testDropbox() {
-    const t = token.trim() || settings.dropboxToken
-    if (!t) return flashDbx('Enter a token first')
-    const err = await testToken(t)
-    flashDbx(err ?? 'Dropbox token works ✓')
-    if (!err) {
-      if (token.trim()) {
-        setSettings({ ...settings, dropboxToken: token.trim() })
-        setToken('')
-      }
-      void sync()
-    }
+  async function authorize() {
+    const key = appKey.trim()
+    if (!key) return flashDbx('Enter your app key first')
+    setSettings({ ...settings, dropboxAppKey: key })
+    window.open(await authorizeUrl(key, beginAuth()), '_blank', 'noopener')
+    flashDbx('Approve in Dropbox, then paste the code below')
+  }
+
+  async function connect() {
+    const key = appKey.trim()
+    if (!key) return flashDbx('Enter your app key first')
+    if (!code.trim()) return flashDbx('Paste the code from Dropbox first')
+    const err = await completeAuth(key, code)
+    if (err) return flashDbx(err)
+    setCode('')
+    flashDbx('Connected ✓')
+    void sync()
+  }
+
+  async function checkConnection() {
+    flashDbx((await testConnection()) ?? 'Dropbox connection works ✓')
   }
 
   async function saveAI() {
@@ -162,20 +173,49 @@ export function SettingsView() {
           Data file: <code>/Apps/Workout Tracker/workouts.jsonl</code>
           {settings.lastSyncAt && <> · last synced {new Date(settings.lastSyncAt).toLocaleString()}</>}
         </p>
-        <input
-          class="text-input"
-          type="password"
-          placeholder={settings.dropboxToken ? '•••• saved — enter to replace' : 'Access token'}
-          value={token}
-          onInput={(e) => setToken((e.target as HTMLInputElement).value)}
-        />
+        {settings.dropboxRefreshToken ? (
+          <p class="muted small">Connected ✓ — the app renews its own access from here on.</p>
+        ) : settings.dropboxToken ? (
+          <p class="warn small">
+            Using a pasted token, which Dropbox expires after 4 hours. Connect below to stay signed in.
+          </p>
+        ) : null}
+
+        {!settings.dropboxRefreshToken && (
+          <>
+            <input
+              class="text-input"
+              type="text"
+              placeholder="App key"
+              autocomplete="off"
+              value={appKey}
+              onInput={(e) => setAppKey((e.target as HTMLInputElement).value)}
+            />
+            <div class="btn-row">
+              <button class="btn" onClick={authorize}>
+                Authorize…
+              </button>
+            </div>
+            <input
+              class="text-input"
+              type="text"
+              placeholder="Paste the code Dropbox shows you"
+              autocomplete="off"
+              value={code}
+              onInput={(e) => setCode((e.target as HTMLInputElement).value)}
+            />
+            <div class="btn-row">
+              <button class="btn primary" onClick={connect}>
+                Connect
+              </button>
+            </div>
+          </>
+        )}
+
         <div class="btn-row">
-          <button class="btn" onClick={testDropbox}>
-            Save & test
-          </button>
           <button
             class="btn"
-            disabled={!settings.dropboxToken}
+            disabled={!settings.dropboxRefreshToken && !settings.dropboxToken}
             onClick={() =>
               Promise.all([sync(), syncMetrics(), syncCoach()]).then(
                 ([a, b, c]) => flashDbx(a ?? b ?? c ?? 'Synced ✓'),
@@ -184,10 +224,24 @@ export function SettingsView() {
           >
             Sync now
           </button>
+          <button class="btn ghost" disabled={!settings.dropboxRefreshToken && !settings.dropboxToken} onClick={checkConnection}>
+            Test
+          </button>
+          {settings.dropboxRefreshToken && (
+            <button
+              class="btn ghost danger-text"
+              onClick={() => {
+                disconnectDropbox()
+                flashDbx('Disconnected')
+              }}
+            >
+              Disconnect
+            </button>
+          )}
           {dbxStatus && <span class="muted small">{dbxStatus}</span>}
         </div>
         <button class="btn ghost wide" onClick={() => setShowHelp(!showHelp)}>
-          {showHelp ? 'Hide' : 'How do I get a token?'}
+          {showHelp ? 'Hide' : 'How do I connect Dropbox?'}
         </button>
         {showHelp && (
           <ol class="help-list">
@@ -199,9 +253,16 @@ export function SettingsView() {
               and click "Create app".
             </li>
             <li>Choose "App folder" access (the app only sees its own folder) and name it "Workout Tracker".</li>
-            <li>In the app's Permissions tab, grant <b>files.content.read</b> and <b>files.content.write</b>.</li>
-            <li>In the Settings tab, click "Generate access token" and paste it above.</li>
-            <li>Note: generated tokens don't expire by default. If sync stops working, generate a new one.</li>
+            <li>In the app's Permissions tab, grant <b>files.content.read</b> and <b>files.content.write</b>, then Submit.</li>
+            <li>
+              On the Settings tab copy the <b>App key</b> — not a generated token — and paste it above. The app key is
+              public by design; there is no secret to leak.
+            </li>
+            <li>Tap "Authorize…", approve the app in Dropbox, and paste the code it shows you into the second box.</li>
+            <li>
+              That grants offline access, so the app renews itself from now on. A pasted access token would have died
+              after 4 hours.
+            </li>
           </ol>
         )}
       </div>
