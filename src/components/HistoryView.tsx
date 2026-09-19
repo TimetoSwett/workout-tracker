@@ -95,7 +95,7 @@ export function HistoryView() {
 
   if (workouts.length === 0) {
     return (
-      <div class="view">
+      <div class="view cols">
         <h1>History</h1>
         <p class="muted">No workouts yet. Log your first one in the Log tab.</p>
       </div>
@@ -103,10 +103,10 @@ export function HistoryView() {
   }
 
   return (
-    <div class="view">
+    <div class="view cols">
       <h1>History</h1>
 
-      <div class="card">
+      <div class="card span">
         <h3>Weekly volume ({settings.units})</h3>
         <div class="chart">
           {weeks.map((w) => (

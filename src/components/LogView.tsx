@@ -187,7 +187,7 @@ export function LogView() {
   if (feedback && pendingFinish) {
     const groupIds = Object.keys(feedback).map(Number)
     return (
-      <div class="view">
+      <div class="view cols">
         <h1>How'd it feel?</h1>
         {groupIds.map((id) => (
           <div key={id} class="card">
@@ -253,7 +253,7 @@ export function LogView() {
 
   if (!active) {
     return (
-      <div class="view">
+      <div class="view cols">
         <h1>Ready to train?</h1>
         {activeMeso && (
           <div class="card">
@@ -309,7 +309,7 @@ export function LogView() {
   }
 
   return (
-    <div class="view">
+    <div class="view cols">
       <div class="log-header">
         <div>
           <div class="log-title">{active.name ?? 'Workout'}</div>

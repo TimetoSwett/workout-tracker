@@ -79,7 +79,7 @@ export function BodyView() {
   const noData = metrics.length === 0
 
   return (
-    <div class="view">
+    <div class="view cols">
       <h1>Body</h1>
 
       {noData && (

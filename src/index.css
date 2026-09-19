@@ -862,3 +862,84 @@ code {
   cursor: pointer;
   font-family: inherit;
 }
+
+/* ---------------------------------------------------------------------------
+   Unfolded foldable / small tablet.
+
+   The phone layout is a single 520px column, which on an unfolded Z Fold
+   leaves most of the screen empty. Past 620px the shell widens and cards flow
+   into two columns, so a workout or a settings page fits without scrolling.
+   The cover screen is narrower than the breakpoint and keeps the phone layout
+   untouched — folding and unfolding just re-runs the media query.
+
+   620 rather than ~700 because an unfolded Fold reports anywhere from ~650 to
+   ~890 CSS px depending on its display-scaling setting; a threshold above that
+   range would mean the wide layout silently never appears on the device it was
+   written for.
+--------------------------------------------------------------------------- */
+@media (min-width: 620px) {
+  #app,
+  .tabbar {
+    max-width: 880px;
+  }
+
+  main {
+    padding: 22px 18px calc(88px + env(safe-area-inset-bottom));
+  }
+
+  .view > h1 {
+    font-size: 1.7rem;
+    margin-bottom: 18px;
+  }
+
+  /* Multi-column rather than a 2-up grid: card heights vary a lot (a two-row
+     Preferences card beside the tall Dropbox one), and grid rows are as tall as
+     their tallest card, which strands big empty blocks. Columns balance by
+     height instead, and reading down a column then across also matches the
+     order exercises are actually performed in. */
+  .view.cols {
+    columns: 2;
+    column-gap: 16px;
+  }
+
+  /* Everything spans by default and only cards flow into the columns, so
+     headings, button rows and action bars keep working without extra markup. */
+  .view.cols > * {
+    column-span: all;
+  }
+
+  .view.cols > .card {
+    column-span: none;
+    break-inside: avoid; /* never split a card across the fold */
+  }
+
+  /* Opt a card back out — charts and headers read better full width. */
+  .view.cols > .card.span {
+    column-span: all;
+  }
+
+  /* column-span only applies to block-level boxes, and .btn is inline-flex —
+     without this an "Add exercise" button silently stays inside one column. */
+  .view.cols > .btn {
+    display: flex;
+    width: 100%;
+  }
+
+  /* Prose stays a readable measure however wide the screen gets. */
+  .view.narrow {
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  .rest-timer {
+    max-width: 560px;
+  }
+
+  .modal {
+    max-width: 620px;
+  }
+
+  .chart {
+    height: 150px;
+  }
+}

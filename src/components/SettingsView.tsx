@@ -133,7 +133,7 @@ export function SettingsView() {
   }
 
   return (
-    <div class="view">
+    <div class="view cols">
       <h1>Settings</h1>
 
       <div class="card">

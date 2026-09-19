@@ -200,7 +200,7 @@ export function CoachView() {
 
   if (!ai?.apiKey) {
     return (
-      <div class="view">
+      <div class="view narrow">
         <h1>Coach</h1>
         <div class="card">
           <p>Connect an AI provider in Settings to talk to your coach.</p>
@@ -213,7 +213,7 @@ export function CoachView() {
   }
 
   return (
-    <div class="view">
+    <div class="view narrow">
       <h1>Coach</h1>
 
       <div class="card analyze-bar">

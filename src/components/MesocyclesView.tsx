@@ -139,7 +139,7 @@ export function MesocyclesView() {
 
   if (draft) {
     return (
-      <div class="view">
+      <div class="view cols">
         <h1>{draft.id ? 'Edit mesocycle' : 'New mesocycle'}</h1>
         <div class="card">
           <input
@@ -258,7 +258,7 @@ export function MesocyclesView() {
   }
 
   return (
-    <div class="view">
+    <div class="view cols">
       <h1>Mesocycles</h1>
 
       {!hasAny && (
