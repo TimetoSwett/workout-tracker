@@ -50,6 +50,20 @@ npm run build    # production build to dist/
 
 Stack: Vite + Preact + TypeScript, vite-plugin-pwa (Workbox service worker). Deploys to GitHub Pages via `.github/workflows/deploy.yml` on push to `main`.
 
+### Cloudflare Pages (mirror + backup)
+
+The app also builds for Cloudflare Pages. `vite.config.ts` picks `base: '/'` when Cloudflare's own `CF_PAGES` build env var is set, and `base: '/workout-tracker/'` otherwise, so the same repo serves both GitHub Pages (subpath) and Cloudflare Pages (custom domain root) without a separate build script.
+
+One-time setup (do this in the Cloudflare dashboard — no repo changes needed):
+
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**, authorize GitHub, pick the `workout-tracker` repo.
+2. Build settings: **Framework preset** `None`, **Build command** `npm run build`, **Build output directory** `dist`. Leave everything else default — no environment variables needed, Cloudflare sets `CF_PAGES` itself.
+3. After the first deploy, open the Pages project → **Custom domains** → **Set up a custom domain** → enter the chosen hostname (e.g. `workout.tucker-swett.com`). Since `tucker-swett.com` is already on this Cloudflare account, DNS is created automatically.
+4. Every push to `main` now deploys to both GitHub Pages and Cloudflare Pages independently — no conflict, they're separate pipelines.
+5. Browser storage is per-origin: open the new hostname once and re-enter the Dropbox token in Settings → Dropbox sync (or just sync) to pull your existing data down from Dropbox.
+
+This uses Cloudflare's Git-connect build, not a GitHub Actions job, so no Cloudflare API token or GitHub secret is required.
+
 ## Data format
 
 Each workout is one JSON line in `workouts.jsonl`:

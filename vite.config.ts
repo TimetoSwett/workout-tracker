@@ -2,8 +2,13 @@ import preact from '@preact/preset-vite'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// GitHub Pages serves this repo from /workout-tracker/. Cloudflare Pages
+// serves it from the root of its own domain, and sets CF_PAGES=1 during its
+// build, so we can pick the right base automatically without a second config.
+const base = process.env.CF_PAGES ? '/' : '/workout-tracker/'
+
 export default defineConfig({
-  base: '/workout-tracker/',
+  base,
   plugins: [
     preact(),
     VitePWA({
