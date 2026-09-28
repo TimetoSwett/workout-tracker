@@ -14,11 +14,15 @@
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
     "@capacitor/core": "^8.5.2",
+    "@capacitor/status-bar": "^8.0.3",
     "jszip": "^3.10.2",
     "preact": "^10.29.8"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^8.5.2",
     "@preact/preset-vite": "^2.10.6",
     "@types/node": "^24.13.3",

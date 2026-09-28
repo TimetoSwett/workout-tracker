@@ -7,6 +7,7 @@ import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, testConnectio
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
+import { openExternal } from '../native'
 
 /** Quotes a CSV cell, doubling inner quotes and neutralizing spreadsheet formula prefixes. */
 function csvCell(v: string): string {
@@ -61,7 +62,7 @@ export function SettingsView() {
     const key = appKey.trim()
     if (!key) return flashDbx('Enter your app key first')
     setSettings({ ...settings, dropboxAppKey: key })
-    window.open(await authorizeUrl(key, beginAuth()), '_blank', 'noopener')
+    await openExternal(await authorizeUrl(key, beginAuth()))
     flashDbx('Approve in Dropbox, then paste the code below')
   }
 
@@ -247,7 +248,15 @@ export function SettingsView() {
           <ol class="help-list">
             <li>
               Go to{' '}
-              <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noreferrer">
+              <a
+                href="https://www.dropbox.com/developers/apps"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault()
+                  void openExternal('https://www.dropbox.com/developers/apps')
+                }}
+              >
                 dropbox.com/developers/apps
               </a>{' '}
               and click "Create app".
