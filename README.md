@@ -17,9 +17,36 @@ No accounts, no server, no subscription. Everything (including your API keys) st
 
 ## Install on your phone (Android)
 
+**Option A — PWA (easiest, no APK):**
+
 1. Open the live app URL in Chrome
 2. Menu → **Add to Home screen** → Install
 3. It launches fullscreen like a native app and works offline
+
+**Option B — APK (native app wrapper, sideloaded):**
+
+The app is also wrapped with [Capacitor](https://capacitorjs.com) into a real
+Android app (`android/`). It's not on the Play Store, so you install it by
+sideloading the built APK:
+
+1. Get `app-release.apk` from whoever built it (see "Building the Android
+   APK" below) — email, Drive, USB cable, whatever's easiest — and copy it
+   onto your phone.
+2. On your phone: **Settings → Apps → Special access → Install unknown apps**
+   (on some phones: **Settings → Security**) → pick the app you'll open the
+   file with (e.g. Files, Chrome, or your email/Drive app) → enable **Allow
+   from this source**.
+3. Open the APK file on your phone (e.g. from the Files app or your
+   downloads) and tap **Install**. Android will show a warning because it's
+   not from the Play Store — that's expected for a sideloaded app; tap
+   **Install anyway**.
+4. Open **Workout Tracker** from your app drawer. It works fully offline,
+   same as the PWA — your data still lives in your Dropbox, not on any app
+   store account.
+
+To get an *updated* APK later, repeat steps 1–3 with the new file —
+installing over the existing app keeps your data as long as it's signed with
+the same key (see `android/KEYSTORE.md`).
 
 ## One-time setup
 
@@ -63,6 +90,41 @@ One-time setup (do this in the Cloudflare dashboard — no repo changes needed):
 5. Browser storage is per-origin: open the new hostname once and re-enter the Dropbox token in Settings → Dropbox sync (or just sync) to pull your existing data down from Dropbox.
 
 This uses Cloudflare's Git-connect build, not a GitHub Actions job, so no Cloudflare API token or GitHub secret is required.
+
+### Building the Android APK
+
+Requires a JDK (17+) and the Android SDK (`platforms;android-34` or newer,
+`build-tools`) installed locally, with `JAVA_HOME` and `ANDROID_HOME` (or
+`ANDROID_SDK_ROOT`) set in your shell — Gradle needs both to build. The SDK
+path is also cached in `android/local.properties` (gitignored, machine-local,
+same pattern as every native Android project).
+
+```sh
+export JAVA_HOME=/path/to/jdk-17-or-newer
+export ANDROID_HOME=/path/to/android-sdk
+
+npm run build:android   # vite build in --mode capacitor (base '/', see vite.config.ts)
+npm run cap:sync        # build:android, then `cap sync android` to copy web assets in
+npm run android:apk     # cap:sync, then a signed release APK via Gradle
+```
+
+`npm run android:apk` is the one command from the issue: it produces
+`android/app/build/outputs/apk/release/app-release.apk`, signed with the
+release key described in `android/KEYSTORE.md` (gitignored — the keystore
+and its passwords never enter this repo). If `android/keystore.properties`
+is missing, the release build falls back to an **unsigned** APK instead of
+failing, so a machine without the release key can still build and verify —
+just not produce something installable without a debug-signed variant.
+
+There's also `npm run android:install`, which does the above and then
+`adb install -r` onto a device connected over USB/ADB — useful for testing
+without moving the APK by hand.
+
+The Vite `base` differs by target: `/workout-tracker/` for GitHub Pages
+(default), `/` for Cloudflare Pages (`CF_PAGES=1`, set by Cloudflare) and for
+the Android WebView (`--mode capacitor`, which `build:android` passes). The
+Capacitor WebView serves assets from its own root, not a URL subpath, so it
+needs `base: '/'` the same way Cloudflare does — see `vite.config.ts`.
 
 ## Data format
 
