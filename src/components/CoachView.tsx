@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { CoachMessage, CoachThread, Goal, Philosophy, Profile, Workout } from '../types'
+import { muscleGroupName } from '../mesoEngine'
 import { setSettings, useStore } from '../store'
 import { aiChat } from '../ai'
 import {
   MEMORY_SYSTEM,
+  MESO_DRAFT_TRIGGER,
   PHILOSOPHY_LABELS,
   coachSystem,
   compileHistorySummary,
   compileWorkouts,
   mesoPlanSystem,
 } from '../prompts'
+import { buildMesoDraft, collectKnownExerciseNames, parseMesoDraftJson } from '../mesoDraft'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
 
@@ -42,7 +45,7 @@ interface Props {
 }
 
 export function CoachView({ intent, onIntentHandled }: Props = {}) {
-  const { workouts, settings, mesocycles } = useStore()
+  const { workouts, settings, mesocycles, templates } = useStore()
   const [, force] = useState(0)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [input, setInput] = useState('')
@@ -51,6 +54,8 @@ export function CoachView({ intent, onIntentHandled }: Props = {}) {
   const [search, setSearch] = useState('')
   const [showSetup, setShowSetup] = useState(false)
   const [win, setWin] = useState<Win>(4)
+  const [draftBusy, setDraftBusy] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
 
   useEffect(() => subscribeCoach(() => force((n) => n + 1)), [])
 
@@ -252,6 +257,54 @@ export function CoachView({ intent, onIntentHandled }: Props = {}) {
     void run(thread, [], msg, false)
   }
 
+  /** Asks the model to finalize the agreed-on plan as JSON (see MESO_JSON_CONTRACT),
+   *  validates the reply, retries once with a correction if it doesn't parse/validate,
+   *  then stores the resulting in-memory Mesocycle draft on the thread. Nothing is
+   *  saved to the app's mesocycles here — that's a separate review/save step. */
+  async function generateDraft() {
+    if (!ai || !active || active.mode !== 'meso-plan' || draftBusy) return
+    setDraftBusy(true)
+    setDraftError(null)
+    const sys = systemFor(active)
+    const base = active.messages.map((m) => ({ role: m.role, content: m.content }))
+    const triggerMsgs = [...base, { role: 'user' as const, content: MESO_DRAFT_TRIGGER }]
+    try {
+      let reply = await aiChat(ai, sys, triggerMsgs)
+      try {
+        const parsed = parseMesoDraftJson(reply)
+        applyDraft(parsed)
+        return
+      } catch (firstErr) {
+        const fixMsgs = [
+          ...triggerMsgs,
+          { role: 'assistant' as const, content: reply },
+          {
+            role: 'user' as const,
+            content: `That reply didn't match the required JSON contract: ${
+              firstErr instanceof Error ? firstErr.message : String(firstErr)
+            }. Reply with ONLY the corrected JSON in a single \`\`\`json code block — no explanation, no other text.`,
+          },
+        ]
+        reply = await aiChat(ai, sys, fixMsgs)
+        const parsed = parseMesoDraftJson(reply)
+        applyDraft(parsed)
+      }
+    } catch (e) {
+      setDraftError(
+        `Couldn't produce a valid mesocycle draft: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    } finally {
+      setDraftBusy(false)
+    }
+
+    function applyDraft(parsed: ReturnType<typeof parseMesoDraftJson>) {
+      const known = collectKnownExerciseNames(workouts, templates, mesocycles)
+      const { meso, unmatchedExerciseNames } = buildMesoDraft(parsed, known)
+      upsertThread({ ...active!, draftMeso: meso, draftUnmatchedExercises: unmatchedExerciseNames, updatedAt: Date.now() })
+      void syncCoach()
+    }
+  }
+
   if (!ai?.apiKey) {
     return (
       <div class="view narrow">
@@ -327,6 +380,11 @@ export function CoachView({ intent, onIntentHandled }: Props = {}) {
             <button class="btn small ghost" onClick={() => setActiveId(null)}>
               All conversations
             </button>
+            {active.mode === 'meso-plan' && (
+              <button class="btn small primary" onClick={generateDraft} disabled={busy || draftBusy}>
+                {draftBusy ? 'Generating draft…' : '📋 Generate draft'}
+              </button>
+            )}
             <button
               class="btn small danger"
               onClick={() => {
@@ -374,6 +432,42 @@ export function CoachView({ intent, onIntentHandled }: Props = {}) {
       {busy && <div class="card chat-card assistant muted">Thinking…</div>}
 
       {error && <div class="card error-card">{error}</div>}
+
+      {draftError && <div class="card error-card">{draftError}</div>}
+
+      {active?.draftMeso && (
+        <div class="card">
+          <h3>Draft: {active.draftMeso.name}</h3>
+          {active.draftMeso.goal && <p class="muted small">{active.draftMeso.goal}</p>}
+          <p class="muted small">
+            {active.draftMeso.unit} · {active.draftMeso.weeksPlanned} weeks
+            {active.draftMeso.deloadWeek != null ? ` · deload week ${active.draftMeso.deloadWeek + 1}` : ''}
+          </p>
+          {active.draftMeso.days.map((d) => (
+            <div key={d.id} class="setting-row" style={{ alignItems: 'flex-start' }}>
+              <span>{d.label}</span>
+              <span class="small">
+                {d.exercises
+                  .map((ex) => `${ex.name} ${ex.sets}x${ex.repTarget ? `${ex.repTarget[0]}-${ex.repTarget[1]}` : '?'}`)
+                  .join(', ')}
+              </span>
+            </div>
+          ))}
+          {active.draftMeso.priorities.length > 0 && (
+            <p class="muted small">
+              Priorities:{' '}
+              {active.draftMeso.priorities
+                .map((p) => `${muscleGroupName(p.muscleGroupId, settings.muscleGroupNames)} (${p.type})`)
+                .join(', ')}
+            </p>
+          )}
+          {!!active.draftUnmatchedExercises?.length && (
+            <p class="small" style={{ color: 'var(--danger)' }}>
+              Not in your exercise list yet — review before saving: {active.draftUnmatchedExercises.join(', ')}
+            </p>
+          )}
+        </div>
+      )}
 
       <div class="followup-bar">
         <input

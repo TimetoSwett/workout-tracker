@@ -332,6 +332,56 @@ function compileMesocycles(mesocycles: Mesocycle[], settings: Settings): string 
   return lines.join('\n')
 }
 
+/** Literal message the app sends to ask the model to finalize the agreed plan as JSON.
+ *  Kept as an exact string so `mesoPlanSystem` can tell the model precisely what to
+ *  watch for. */
+export const MESO_DRAFT_TRIGGER = 'Generate the mesocycle draft now.'
+
+const MESO_JSON_CONTRACT = `
+# FINALIZING THE DRAFT (JSON)
+When the user sends exactly "${MESO_DRAFT_TRIGGER}", stop discussing and reply with
+ONLY a single fenced \`\`\`json code block containing one JSON object — no prose
+before or after it — matching this shape exactly:
+
+{
+  "name": string,
+  "goal": string,
+  "unit": "lbs" | "kg",
+  "weeksPlanned": integer >= 1,
+  "deloadWeek": integer | null,
+  "days": [
+    {
+      "label": string,
+      "exercises": [
+        {
+          "name": string,
+          "muscleGroupId": integer | null,
+          "sets": integer >= 1,
+          "repTarget": [integer, integer] | null
+        }
+      ]
+    }
+  ],
+  "priorities": [
+    { "muscleGroupId": integer, "type": "grow" | "maintain" | "emphasize" }
+  ]
+}
+
+Rules:
+- "unit" matches the user's units from settings unless they asked for something else.
+- "deloadWeek" is 0-indexed and normally the last week (weeksPlanned - 1); use null only
+  if the block genuinely has no deload.
+- "muscleGroupId" must be one of the ids from MUSCLE GROUPS above, or null if it truly
+  doesn't fit one.
+- Reuse exact names from EXISTING EXERCISES / past mesocycles / workout history above
+  when one fits — the app will flag any name that doesn't match something it already
+  knows, so don't invent a new name when a known one works.
+- Omit a muscle group from "priorities" entirely if it should just be "maintain" (the
+  default) — don't list every muscle group.
+- Do not send this JSON unless you and the user have actually agreed on the plan. If
+  "${MESO_DRAFT_TRIGGER}" arrives before that, ask the outstanding question(s) instead
+  of guessing.`
+
 export function mesoPlanSystem(
   philosophy: Philosophy,
   profile: Profile | undefined,
@@ -367,5 +417,6 @@ set of clarifying questions covering only what you don't already know:
    from a break, etc.)
 
 Once you and the user land on a plan, help them write a single concise \`goal\`
-sentence for the mesocycle's \`goal\` field that captures the intent of the block.`
+sentence for the mesocycle's \`goal\` field that captures the intent of the block.
+${MESO_JSON_CONTRACT}`
 }
