@@ -206,6 +206,8 @@ export interface CoachThread {
   weeks: number
   /** Overrides `weeks`: a single most-recent session, or the entire history. */
   scope?: 'last' | 'all'
+  /** Special conversation mode with its own system prompt. Absent = normal coaching chat. */
+  mode?: 'meso-plan'
   messages: CoachMessage[]
   deleted?: boolean
 }

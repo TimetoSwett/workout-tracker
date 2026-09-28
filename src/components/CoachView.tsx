@@ -2,9 +2,18 @@ import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { CoachMessage, CoachThread, Goal, Philosophy, Profile, Workout } from '../types'
 import { setSettings, useStore } from '../store'
 import { aiChat } from '../ai'
-import { MEMORY_SYSTEM, PHILOSOPHY_LABELS, coachSystem, compileHistorySummary, compileWorkouts } from '../prompts'
+import {
+  MEMORY_SYSTEM,
+  PHILOSOPHY_LABELS,
+  coachSystem,
+  compileHistorySummary,
+  compileWorkouts,
+  mesoPlanSystem,
+} from '../prompts'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
+
+export type CoachIntent = 'plan-meso'
 
 type Win = 'last' | 'all' | number
 const WINDOWS: { key: Win; label: string }[] = [
@@ -25,7 +34,14 @@ function uid(): string {
   return crypto.randomUUID()
 }
 
-export function CoachView() {
+interface Props {
+  /** Set once by a caller (e.g. the "Plan next meso" link from Mesocycles) to auto-start
+   *  that mode on mount. Consumed via `onIntentHandled` so it doesn't re-fire. */
+  intent?: CoachIntent | null
+  onIntentHandled?: () => void
+}
+
+export function CoachView({ intent, onIntentHandled }: Props = {}) {
   const { workouts, settings, mesocycles } = useStore()
   const [, force] = useState(0)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -37,6 +53,14 @@ export function CoachView() {
   const [win, setWin] = useState<Win>(4)
 
   useEffect(() => subscribeCoach(() => force((n) => n + 1)), [])
+
+  useEffect(() => {
+    if (intent === 'plan-meso' && settings.ai?.apiKey) {
+      planMeso()
+      onIntentHandled?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intent])
 
   const ai = settings.ai
   const threads = getThreads()
@@ -113,6 +137,16 @@ export function CoachView() {
       : '\n\n# WORKOUT DATA\n\n' + compileWorkouts(ws, settings, mesocycles)
   }
 
+  function systemFor(thread: CoachThread): string {
+    if (thread.mode === 'meso-plan') {
+      return (
+        mesoPlanSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory, mesocycles) +
+        dataBlock(thread)
+      )
+    }
+    return coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) + dataBlock(thread)
+  }
+
   async function run(thread: CoachThread, history: CoachMessage[], userMsg: CoachMessage, isAnalysis: boolean) {
     if (!ai) return
     setBusy(true)
@@ -121,8 +155,7 @@ export function CoachView() {
     try {
       const reply = await aiChat(
         ai,
-        coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) +
-          dataBlock(thread),
+        systemFor(thread),
         history.concat(userMsg).map((m) => ({ role: m.role, content: m.content })),
       )
       const replyMsg: CoachMessage = { role: 'assistant', content: reply, at: Date.now() }
@@ -198,6 +231,27 @@ export function CoachView() {
     void run(thread, [], msg, true)
   }
 
+  function planMeso() {
+    const thread: CoachThread = {
+      id: uid(),
+      title: 'Plan next meso',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      philosophy: settings.philosophy,
+      weeks: typeof win === 'number' ? win : 4,
+      ...(typeof win === 'string' ? { scope: win } : {}),
+      mode: 'meso-plan',
+      messages: [],
+    }
+    setActiveId(thread.id)
+    const msg: CoachMessage = {
+      role: 'user',
+      content: 'Help me plan my next mesocycle.',
+      at: Date.now(),
+    }
+    void run(thread, [], msg, false)
+  }
+
   if (!ai?.apiKey) {
     return (
       <div class="view narrow">
@@ -241,6 +295,11 @@ export function CoachView() {
             Analyze
           </button>
         </div>
+        <div class="btn-row" style={{ marginTop: 8 }}>
+          <button class="btn ghost" onClick={planMeso} disabled={busy}>
+            📅 Plan next meso
+          </button>
+        </div>
         <div class="muted small">
           {(() => {
             const n = windowOf(active ? (active.scope ?? active.weeks) : win).length
@@ -257,7 +316,8 @@ export function CoachView() {
         <div class="card chat-card assistant">
           <div class="chat-label">Conversation</div>
           <div class="muted small" style={{ marginBottom: 6 }}>
-            {active.title} · philosophy {PHILOSOPHY_LABELS[active.philosophy]}
+            {active.title}
+            {active.mode === 'meso-plan' ? ' · meso planning' : ` · philosophy ${PHILOSOPHY_LABELS[active.philosophy]}`}
           </div>
           <div class="chat-body small muted">
             {active.messages.length} messages — data context: last {active.weeks}w attached to every

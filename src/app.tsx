@@ -5,6 +5,7 @@ import { dropboxConfigured } from './dropbox'
 import { LogView } from './components/LogView'
 import { HistoryView } from './components/HistoryView'
 import { CoachView } from './components/CoachView'
+import type { CoachIntent } from './components/CoachView'
 import { SettingsView } from './components/SettingsView'
 import { MesocyclesView } from './components/MesocyclesView'
 import { BodyView } from './components/BodyView'
@@ -16,6 +17,7 @@ type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'activity' | 'sett
 
 export function App() {
   const [tab, setTab] = useState<Tab>('log')
+  const [coachIntent, setCoachIntent] = useState<CoachIntent | null>(null)
   const { settings } = useStore()
 
   useEffect(() => {
@@ -31,10 +33,17 @@ export function App() {
       <main>
         {tab === 'log' && <LogView />}
         {tab === 'history' && <HistoryView />}
-        {tab === 'insights' && <CoachView />}
+        {tab === 'insights' && <CoachView intent={coachIntent} onIntentHandled={() => setCoachIntent(null)} />}
         {tab === 'body' && <BodyView />}
         {tab === 'activity' && <ActivityView />}
-        {tab === 'meso' && <MesocyclesView />}
+        {tab === 'meso' && (
+          <MesocyclesView
+            onPlanMeso={() => {
+              setCoachIntent('plan-meso')
+              setTab('insights')
+            }}
+          />
+        )}
         {tab === 'settings' && <SettingsView />}
       </main>
       <nav class="tabbar">

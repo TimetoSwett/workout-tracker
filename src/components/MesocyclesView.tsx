@@ -38,7 +38,11 @@ function repRangeText(r: [number, number] | undefined): string {
   return r ? `${r[0]}-${r[1]}` : ''
 }
 
-export function MesocyclesView() {
+interface Props {
+  onPlanMeso?: () => void
+}
+
+export function MesocyclesView({ onPlanMeso }: Props = {}) {
   const { mesocycles, workouts, settings } = useStore()
   const [draft, setDraft] = useState<Draft | null>(null)
   const [pickerDay, setPickerDay] = useState<number | null>(null)
@@ -264,7 +268,7 @@ export function MesocyclesView() {
       {!hasAny && (
         <div class="card">
           <h3>Get started</h3>
-          <p class="muted small">Import your RP Strength history, or build a mesocycle from scratch.</p>
+          <p class="muted small">Import your RP Strength history, build a mesocycle from scratch, or have your coach help you plan one.</p>
           <div class="btn-row">
             <label class="btn ghost file-btn">
               Import RP Strength data
@@ -282,6 +286,11 @@ export function MesocyclesView() {
               New mesocycle
             </button>
           </div>
+          {onPlanMeso && (
+            <button class="btn ghost wide" style={{ marginTop: 8 }} onClick={onPlanMeso}>
+              🧠 Plan next meso with your coach
+            </button>
+          )}
         </div>
       )}
 
@@ -290,6 +299,12 @@ export function MesocyclesView() {
       {hasAny && (
         <button class="btn wide" onClick={startCreate}>
           ＋ New mesocycle
+        </button>
+      )}
+
+      {hasAny && onPlanMeso && (
+        <button class="btn ghost wide" onClick={onPlanMeso}>
+          🧠 Plan next meso with your coach
         </button>
       )}
 
