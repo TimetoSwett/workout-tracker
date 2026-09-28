@@ -173,6 +173,24 @@ export function upsertMesocycle(meso: Mesocycle) {
   setMesocycles(mesocycles)
 }
 
+/** Saves `meso` as a mesocycle template. A brand-new one retires any other
+ *  still-active, non-imported mesocycle, matching the app's one-active-plan rule;
+ *  editing an existing id leaves other mesocycles untouched. Shared by the manual
+ *  mesocycle editor and the coach's draft-accept flow so both follow the same rule. */
+export function saveMesocycle(meso: Mesocycle) {
+  const now = Date.now()
+  const existing = state.mesocycles
+  const isNew = !existing.some((m) => m.id === meso.id)
+  const next = isNew
+    ? existing.map((m) =>
+        m.status === 'active' && !m.imported ? { ...m, status: 'complete' as const, finishedAt: now, updatedAt: now } : m,
+      )
+    : existing
+  const i = next.findIndex((m) => m.id === meso.id)
+  const mesocycles = i >= 0 ? next.map((m) => (m.id === meso.id ? meso : m)) : [...next, meso]
+  setMesocycles(mesocycles)
+}
+
 /** Bulk-set both workouts and mesocycles with a single history write (used by import). */
 export function setHistory(workouts: Workout[], mesocycles: Mesocycle[]) {
   state = { ...state, workouts, mesocycles }

@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import type { Mesocycle, MesoPriority, MesoTemplateDay, MesoTemplateExercise } from '../types'
 import { MUSCLE_GROUPS } from '../types'
-import { getState, setHistory, setSettings, uid, upsertMesocycle, useStore } from '../store'
+import { getState, saveMesocycle, setHistory, setSettings, uid, upsertMesocycle, useStore } from '../store'
 import { parseRpExport } from '../rpImport'
 import { mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker } from './ExercisePicker'
@@ -82,11 +82,6 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
       .map(([id, type]) => ({ muscleGroupId: Number(id), type }))
     const now = Date.now()
     const { mesocycles: existing } = getState()
-    let next = existing
-    if (!draft.id) {
-      // starting a new active meso retires any previous active one
-      next = existing.map((m) => (m.status === 'active' && !m.imported ? { ...m, status: 'complete' as const, finishedAt: now, updatedAt: now } : m))
-    }
     const meso: Mesocycle = {
       id: draft.id ?? uid(),
       name,
@@ -100,9 +95,7 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
       updatedAt: now,
       imported: false,
     }
-    const i = next.findIndex((m) => m.id === meso.id)
-    const merged = i >= 0 ? next.map((m) => (m.id === meso.id ? meso : m)) : [...next, meso]
-    setHistory(getState().workouts, merged)
+    saveMesocycle(meso)
     setDraft(null)
   }
 

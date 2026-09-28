@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import type { CoachMessage, CoachThread, Goal, Philosophy, Profile, Workout } from '../types'
-import { muscleGroupName } from '../mesoEngine'
-import { setSettings, useStore } from '../store'
+import type { CoachMessage, CoachThread, Goal, Mesocycle, Philosophy, Profile, Workout } from '../types'
+import { setSettings, saveMesocycle, useStore } from '../store'
+import { sync } from '../sync'
+import { dropboxConfigured } from '../dropbox'
 import { aiChat } from '../ai'
 import {
   MEMORY_SYSTEM,
@@ -15,6 +16,7 @@ import {
 import { buildMesoDraft, collectKnownExerciseNames, parseMesoDraftJson } from '../mesoDraft'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
+import { MesoDraftReview } from './MesoDraftReview'
 
 export type CoachIntent = 'plan-meso'
 
@@ -42,9 +44,12 @@ interface Props {
    *  that mode on mount. Consumed via `onIntentHandled` so it doesn't re-fire. */
   intent?: CoachIntent | null
   onIntentHandled?: () => void
+  /** Called after a draft mesocycle is accepted and saved, so a caller can e.g. switch
+   *  to the Mesocycles tab to show it landed. */
+  onDraftAccepted?: () => void
 }
 
-export function CoachView({ intent, onIntentHandled }: Props = {}) {
+export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = {}) {
   const { workouts, settings, mesocycles, templates } = useStore()
   const [, force] = useState(0)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -305,6 +310,23 @@ export function CoachView({ intent, onIntentHandled }: Props = {}) {
     }
   }
 
+  /** Nothing is written to the app's mesocycles until this runs — `generateDraft`
+   *  only ever stores an in-memory draft on the thread. */
+  function acceptDraft(meso: Mesocycle) {
+    if (!active) return
+    saveMesocycle(meso)
+    if (dropboxConfigured(settings)) void sync()
+    upsertThread({ ...active, draftMeso: undefined, draftUnmatchedExercises: undefined, updatedAt: Date.now() })
+    void syncCoach()
+    onDraftAccepted?.()
+  }
+
+  function discardDraft() {
+    if (!active) return
+    upsertThread({ ...active, draftMeso: undefined, draftUnmatchedExercises: undefined, updatedAt: Date.now() })
+    void syncCoach()
+  }
+
   if (!ai?.apiKey) {
     return (
       <div class="view narrow">
@@ -436,37 +458,16 @@ export function CoachView({ intent, onIntentHandled }: Props = {}) {
       {draftError && <div class="card error-card">{draftError}</div>}
 
       {active?.draftMeso && (
-        <div class="card">
-          <h3>Draft: {active.draftMeso.name}</h3>
-          {active.draftMeso.goal && <p class="muted small">{active.draftMeso.goal}</p>}
-          <p class="muted small">
-            {active.draftMeso.unit} · {active.draftMeso.weeksPlanned} weeks
-            {active.draftMeso.deloadWeek != null ? ` · deload week ${active.draftMeso.deloadWeek + 1}` : ''}
-          </p>
-          {active.draftMeso.days.map((d) => (
-            <div key={d.id} class="setting-row" style={{ alignItems: 'flex-start' }}>
-              <span>{d.label}</span>
-              <span class="small">
-                {d.exercises
-                  .map((ex) => `${ex.name} ${ex.sets}x${ex.repTarget ? `${ex.repTarget[0]}-${ex.repTarget[1]}` : '?'}`)
-                  .join(', ')}
-              </span>
-            </div>
-          ))}
-          {active.draftMeso.priorities.length > 0 && (
-            <p class="muted small">
-              Priorities:{' '}
-              {active.draftMeso.priorities
-                .map((p) => `${muscleGroupName(p.muscleGroupId, settings.muscleGroupNames)} (${p.type})`)
-                .join(', ')}
-            </p>
-          )}
-          {!!active.draftUnmatchedExercises?.length && (
-            <p class="small" style={{ color: 'var(--danger)' }}>
-              Not in your exercise list yet — review before saving: {active.draftUnmatchedExercises.join(', ')}
-            </p>
-          )}
-        </div>
+        <MesoDraftReview
+          key={active.draftMeso.id}
+          meso={active.draftMeso}
+          settings={settings}
+          workouts={workouts}
+          templates={templates}
+          mesocycles={mesocycles}
+          onAccept={acceptDraft}
+          onDiscard={discardDraft}
+        />
       )}
 
       <div class="followup-bar">

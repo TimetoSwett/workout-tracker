@@ -33,7 +33,13 @@ export function App() {
       <main>
         {tab === 'log' && <LogView />}
         {tab === 'history' && <HistoryView />}
-        {tab === 'insights' && <CoachView intent={coachIntent} onIntentHandled={() => setCoachIntent(null)} />}
+        {tab === 'insights' && (
+          <CoachView
+            intent={coachIntent}
+            onIntentHandled={() => setCoachIntent(null)}
+            onDraftAccepted={() => setTab('meso')}
+          />
+        )}
         {tab === 'body' && <BodyView />}
         {tab === 'activity' && <ActivityView />}
         {tab === 'meso' && (
