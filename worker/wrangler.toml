@@ -1,0 +1,20 @@
+name = "workout-tracker-sync"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# CORS allowlist. Comma-separated, no trailing slashes. Includes:
+# - the GitHub Pages origin the app is currently deployed to
+# - Capacitor's default Android WebView origins (both schemes it has used
+#   across versions — harmless to keep both)
+# Add the Cloudflare app origin here once that host is chosen (SWE-18), and
+# swap the GitHub Pages origin for it if the app moves off GitHub Pages.
+[vars]
+ALLOWED_ORIGINS = "https://timetoswett.github.io,https://localhost,capacitor://localhost"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "workout-tracker-sync"
+
+# API_TOKEN is a secret, not a var — set with:
+#   wrangler secret put API_TOKEN
+# See worker/README.md for the full setup steps.
