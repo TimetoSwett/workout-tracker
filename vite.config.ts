@@ -2,12 +2,13 @@ import preact from '@preact/preset-vite'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// GitHub Pages serves this repo from /workout-tracker/. Cloudflare Pages
-// serves it from the root of its own domain and sets CF_PAGES=1 during its
-// build; the Android app (via Capacitor) serves it from the WebView root and
-// builds with --mode capacitor. Both of those need base '/'.
+// GitHub Pages serves this repo from /workout-tracker/. Cloudflare serves it
+// from the root of its own domain: Cloudflare Pages builds set CF_PAGES=1 and
+// Workers Builds set WORKERS_CI=1. The Android app (via Capacitor) serves it
+// from the WebView root and builds with --mode capacitor. All of those need
+// base '/'.
 export default defineConfig(({ mode }) => ({
-  base: process.env.CF_PAGES || mode === 'capacitor' ? '/' : '/workout-tracker/',
+  base: process.env.CF_PAGES || process.env.WORKERS_CI || mode === 'capacitor' ? '/' : '/workout-tracker/',
   plugins: [
     preact(),
     VitePWA({
