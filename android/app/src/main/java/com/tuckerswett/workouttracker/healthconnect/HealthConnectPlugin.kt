@@ -154,10 +154,16 @@ class HealthConnectPlugin : Plugin() {
 
         val filter = TimeRangeFilter.between(start, end)
 
+        // The user can grant some permissions and deny others in the Health Connect dialog;
+        // read only what's actually granted so one denied type doesn't fail the whole sync.
+        val granted = hc.permissionController.getGrantedPermissions()
+        suspend fun <T : Record> readGranted(type: KClass<T>): List<T> =
+            if (HealthPermission.getReadPermission(type) in granted) readAll(hc, type, filter) else emptyList()
+
         // Steps: sum every record per local day (Health Connect already dedupes overlapping
         // writes from the same source, and cross-source overlap is rare enough to ignore here).
         val stepTotals = LinkedHashMap<String, Long>()
-        for (r in readAll(hc, StepsRecord::class, filter)) {
+        for (r in readGranted(StepsRecord::class)) {
             val date = dayFor(r.startTime)
             stepTotals[date] = (stepTotals[date] ?: 0L) + r.count
         }
@@ -166,7 +172,7 @@ class HealthConnectPlugin : Plugin() {
         // Sleep: attribute each session to its end (wake-up) date; longest session wins the
         // day, matching the Samsung CSV import's sleep merge.
         val sleepMinutes = LinkedHashMap<String, Long>()
-        for (r in readAll(hc, SleepSessionRecord::class, filter)) {
+        for (r in readGranted(SleepSessionRecord::class)) {
             val date = dayFor(r.endTime)
             val minutes = Duration.between(r.startTime, r.endTime).toMinutes()
             if (minutes > (sleepMinutes[date] ?: 0L)) sleepMinutes[date] = minutes
@@ -174,20 +180,20 @@ class HealthConnectPlugin : Plugin() {
         sleepMinutes.forEach { (date, minutes) -> dayObj(date).put("sleepMin", minutes) }
 
         // Weight: average multiple same-day weigh-ins, in kilograms (JS converts to app units).
-        average(readAll(hc, WeightRecord::class, filter), { dayFor(it.time) }, { it.weight.inKilograms })
+        average(readGranted(WeightRecord::class), { dayFor(it.time) }, { it.weight.inKilograms })
             .forEach { (date, avg) -> dayObj(date).put("weightKg", avg) }
 
         // Body fat percentage: average per local day.
-        average(readAll(hc, BodyFatRecord::class, filter), { dayFor(it.time) }, { it.percentage.value })
+        average(readGranted(BodyFatRecord::class), { dayFor(it.time) }, { it.percentage.value })
             .forEach { (date, avg) -> dayObj(date).put("bodyFat", avg) }
 
         // Resting heart rate: average bpm per local day.
-        average(readAll(hc, RestingHeartRateRecord::class, filter), { dayFor(it.time) }, { it.beatsPerMinute.toDouble() })
+        average(readGranted(RestingHeartRateRecord::class), { dayFor(it.time) }, { it.beatsPerMinute.toDouble() })
             .forEach { (date, avg) -> dayObj(date).put("restingHr", avg) }
 
         // Nutrition (e.g. MyFitnessPal logs one NutritionRecord per meal): sum calories and
         // macros per local day, attributed to the record's start time.
-        val nutritionRecords = readAll(hc, NutritionRecord::class, filter)
+        val nutritionRecords = readGranted(NutritionRecord::class)
         sum(nutritionRecords, { dayFor(it.startTime) }, { it.energy?.inKilocalories })
             .forEach { (date, total) -> dayObj(date).put("calories", total) }
         sum(nutritionRecords, { dayFor(it.startTime) }, { it.protein?.inGrams })

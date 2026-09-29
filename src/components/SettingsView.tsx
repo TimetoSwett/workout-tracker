@@ -101,9 +101,12 @@ export function SettingsView() {
     try {
       const res = await connectHealthConnect()
       setHcPermissions(res)
-      if (!res.allGranted) {
-        flashHc('Some permissions were denied — use "Open Health Connect" below to grant the rest.')
+      if (res.granted.length === 0) {
+        flashHc('Permissions were denied — use "Open Health Connect" below to grant them.')
         return
+      }
+      if (!res.allGranted) {
+        flashHc('Some permissions were denied — syncing what was granted. Use "Open Health Connect" below to grant the rest.')
       }
       await handleHealthConnectSync()
     } finally {
@@ -459,7 +462,7 @@ export function SettingsView() {
                 </button>
                 <button
                   class="btn ghost"
-                  disabled={hcBusy || !hcPermissions?.allGranted}
+                  disabled={hcBusy || !hcPermissions?.granted.length}
                   onClick={handleHealthConnectSync}
                 >
                   Sync now
