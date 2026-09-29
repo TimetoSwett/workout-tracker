@@ -1,0 +1,165 @@
+name: Build Android APK
+
+# Builds the Capacitor Android app on an x86 runner and publishes the APK as a
+# workflow artifact (and on a GitHub Release for v* tags).
+#
+# Signing: if the four ANDROID_* repo secrets are set, the APK is signed with
+# the release key (android/KEYSTORE.md). Otherwise it is debug-signed so it is
+# still installable - but it will NOT update over a release-signed install.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'assets/**'
+      - 'android/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.ts'
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      - '.github/workflows/android-apk.yml'
+  # Same path filter, so APK-affecting PRs get a build before they merge.
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'assets/**'
+      - 'android/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.ts'
+      - 'vite.config.ts'
+      - 'tsconfig*.json'
+      - '.github/workflows/android-apk.yml'
+
+permissions:
+  contents: write # attach the APK to a GitHub Release on v* tags
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Capacitor 8 / AGP 8.13 need JDK 21.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      # Explicit packages: the action's default list includes the removed
+      # 'tools' package, which makes sdkmanager fail. compileSdk is 36.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - run: npm ci
+      - run: npm run cap:sync
+
+      - name: Configure signing
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            umask 077
+            keystore="$RUNNER_TEMP/release.jks"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+            # Java .properties treats backslash as an escape character.
+            esc() { printf '%s' "${1//\\/\\\\}"; }
+            {
+              printf 'storeFile=%s\n' "$keystore"
+              printf 'storePassword=%s\n' "$(esc "$KEYSTORE_PASSWORD")"
+              printf 'keyAlias=%s\n' "$(esc "$KEY_ALIAS")"
+              printf 'keyPassword=%s\n' "$(esc "$KEY_PASSWORD")"
+            } > android/keystore.properties
+            echo "mode=release" >> "$GITHUB_OUTPUT"
+            echo "Signing with the release key from repo secrets."
+          else
+            echo "mode=debug-signed" >> "$GITHUB_OUTPUT"
+            echo "::warning::ANDROID_* signing secrets not set - building a debug-signed APK."
+          fi
+
+      - name: Build release APK
+        working-directory: android
+        run: |
+          if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
+            ./gradlew --no-daemon assembleRelease
+          else
+            ./gradlew --no-daemon assembleRelease -PdebugSignRelease
+          fi
+
+      - name: Verify signature and name APK
+        id: apk
+        env:
+          # On PRs GITHUB_SHA is the synthetic merge commit; name by the head.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
+          src=android/app/build/outputs/apk/release/app-release.apk
+          "$apksigner" verify --verbose --print-certs "$src"
+
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then label="$GITHUB_REF_NAME"; else label="${HEAD_SHA::7}"; fi
+          name="workout-tracker-${label}-${{ steps.signing.outputs.mode }}"
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp "$src" "$RUNNER_TEMP/apk/$name.apk"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "path=$RUNNER_TEMP/apk/$name.apk" >> "$GITHUB_OUTPUT"
+
+      - name: Job summary
+        run: |
+          {
+            echo "## Android APK"
+            echo
+            echo "**Artifact:** \`${{ steps.apk.outputs.name }}.apk\` (download from the Artifacts section of this run)"
+            echo
+            if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
+              echo "Signed with the **release key**. Installs as an update over any previous release-signed install."
+            else
+              echo "> [!WARNING]"
+              echo "> **Debug-signed APK.** The \`ANDROID_*\` signing secrets are not set, so this APK is signed with a"
+              echo "> throwaway debug key. It installs fresh, but it will **not** update over a release-signed install"
+              echo "> (uninstall first, which deletes on-device app data). Add the secrets - see \`android/KEYSTORE.md\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+
+      - name: Attach to GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${{ steps.apk.outputs.path }}" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "${{ steps.apk.outputs.path }}" --generate-notes
+          fi
+
+      - name: Remove decoded keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks" android/keystore.properties

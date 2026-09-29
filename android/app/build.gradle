@@ -41,7 +41,15 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             // Falls back to unsigned if keystore.properties is missing, so the
             // build never fails for lack of a keystore - see android/KEYSTORE.md.
-            signingConfig hasKeystoreProperties ? signingConfigs.release : null
+            // CI passes -PdebugSignRelease to get an installable debug-signed
+            // APK instead (.github/workflows/android-apk.yml).
+            if (hasKeystoreProperties) {
+                signingConfig signingConfigs.release
+            } else if (project.hasProperty('debugSignRelease')) {
+                signingConfig signingConfigs.debug
+            } else {
+                signingConfig null
+            }
         }
     }
 }
