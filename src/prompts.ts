@@ -1,4 +1,5 @@
 import type { CoachMemory, DailyMetric, LoggedExercise, Mesocycle, Philosophy, Profile, Settings, Workout } from './types'
+import { MUSCLE_GROUPS } from './types'
 import { muscleGroupName } from './mesoEngine'
 import { compileMetrics, nutritionBlock } from './nutrition'
 
@@ -276,4 +277,146 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
     lines.push(`${name}: ${Math.round(b.e1rm)}${settings.units} (${b.w}x${b.r} on ${b.date})`)
   }
   return lines.join('\n')
+}
+
+const MESO_PLAN_PERSONA = `You are helping the user plan their NEXT mesocycle — a multi-week block of
+structured training. This is a distinct mode from ongoing coaching chat: the conversation
+should end with a concrete, written training block the user can enter into the app's
+mesocycle builder themselves. This app does not let you create the mesocycle directly.
+
+# HOW A MESOCYCLE WORKS IN THIS APP
+- A mesocycle has a repeating weekly template of training days (e.g. "Push", "Pull",
+  "Legs"). The user trains through the days in order, looping back to day 1 after the
+  last day, for a set number of weeks.
+- Each day lists exercises, each with a target set count and an optional rep range
+  (e.g. 8-12). There are no per-week variations to plan — the template repeats as-is.
+- Each exercise can be tagged with a muscle group (see MUSCLE GROUPS below), used for
+  volume tracking and later coaching analysis.
+- Each muscle group can carry a priority: "emphasize" (top priority — most volume and
+  frequency), "grow" (extra volume), or "maintain" (just enough to hold; the default
+  when nothing is set).
+- The last week of the block is automatically the deload (loads cut to ~60% of the
+  last working weight), unless the user wants a shorter one.
+- Week 1 carries no weight/rep targets — the app fills those in automatically from
+  week 2 onward, based on what the user actually logs (hit target reps -> add weight,
+  otherwise repeat). There is nothing to prescribe there beyond exercise, set count,
+  and rep range.
+- The \`goal\` field is a short free-text sentence describing the intent of the block
+  (e.g. "Hypertrophy block, emphasize back and arms, 4 days/week").`
+
+function muscleGroupsBlock(settings: Settings): string {
+  return `\n# MUSCLE GROUPS\n${MUSCLE_GROUPS.map((g) => `${g.id}. ${muscleGroupName(g.id, settings.muscleGroupNames)}`).join('\n')}`
+}
+
+/** Past and current mesocycle templates, most recent first, capped for context size. */
+function compileMesocycles(mesocycles: Mesocycle[], settings: Settings): string {
+  const live = mesocycles.filter((m) => !m.deleted).sort((a, b) => b.createdAt - a.createdAt)
+  if (!live.length) return ''
+  const lines = ['\n# PAST AND CURRENT MESOCYCLES']
+  for (const m of live.slice(0, 8)) {
+    const deload = m.deloadWeek != null ? `, deload week ${m.deloadWeek + 1}` : ''
+    lines.push(`\n## ${m.name} — ${m.status}${m.imported ? ', imported' : ''} — ${m.weeksPlanned} weeks${deload}`)
+    if (m.goal) lines.push(`Goal: ${m.goal}`)
+    if (m.priorities.length) {
+      lines.push(
+        `Priorities: ${m.priorities.map((p) => `${muscleGroupName(p.muscleGroupId, settings.muscleGroupNames)} (${p.type})`).join(', ')}`,
+      )
+    }
+    for (const day of m.days) {
+      const exs = day.exercises
+        .map((ex) => `${ex.name} ${ex.sets}x${ex.repTarget ? `${ex.repTarget[0]}-${ex.repTarget[1]}` : '?'}`)
+        .join(', ')
+      lines.push(`${day.label}: ${exs}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/** Literal message the app sends to ask the model to finalize the agreed plan as JSON.
+ *  Kept as an exact string so `mesoPlanSystem` can tell the model precisely what to
+ *  watch for. */
+export const MESO_DRAFT_TRIGGER = 'Generate the mesocycle draft now.'
+
+const MESO_JSON_CONTRACT = `
+# FINALIZING THE DRAFT (JSON)
+When the user sends exactly "${MESO_DRAFT_TRIGGER}", stop discussing and reply with
+ONLY a single fenced \`\`\`json code block containing one JSON object — no prose
+before or after it — matching this shape exactly:
+
+{
+  "name": string,
+  "goal": string,
+  "unit": "lbs" | "kg",
+  "weeksPlanned": integer >= 1,
+  "deloadWeek": integer | null,
+  "days": [
+    {
+      "label": string,
+      "exercises": [
+        {
+          "name": string,
+          "muscleGroupId": integer | null,
+          "sets": integer >= 1,
+          "repTarget": [integer, integer] | null
+        }
+      ]
+    }
+  ],
+  "priorities": [
+    { "muscleGroupId": integer, "type": "grow" | "maintain" | "emphasize" }
+  ]
+}
+
+Rules:
+- "unit" matches the user's units from settings unless they asked for something else.
+- "deloadWeek" is 0-indexed and normally the last week (weeksPlanned - 1); use null only
+  if the block genuinely has no deload.
+- "muscleGroupId" must be one of the ids from MUSCLE GROUPS above, or null if it truly
+  doesn't fit one.
+- Reuse exact names from EXISTING EXERCISES / past mesocycles / workout history above
+  when one fits — the app will flag any name that doesn't match something it already
+  knows, so don't invent a new name when a known one works.
+- Omit a muscle group from "priorities" entirely if it should just be "maintain" (the
+  default) — don't list every muscle group.
+- Do not send this JSON unless you and the user have actually agreed on the plan. If
+  "${MESO_DRAFT_TRIGGER}" arrives before that, ask the outstanding question(s) instead
+  of guessing.`
+
+export function mesoPlanSystem(
+  philosophy: Philosophy,
+  profile: Profile | undefined,
+  settings: Settings,
+  metrics: DailyMetric[] | undefined,
+  memory: CoachMemory | null | undefined,
+  mesocycles: Mesocycle[],
+): string {
+  return `${MESO_PLAN_PERSONA}
+${muscleGroupsBlock(settings)}
+
+# COACHING PHILOSOPHY: ${PHILOSOPHY_LABELS[philosophy].toUpperCase()}
+${philosophyBlock(philosophy)}
+${profileBlock(profile, settings)}${metrics ? compileMetrics(metrics, settings) : ''}${compileMesocycles(mesocycles, settings)}${memoryBlock(memory ?? null)}${notesBlock(settings.coachNotes)}
+
+# WHAT TO DO
+If the user already gave you enough to work with — training days per week, session
+length or time budget, equipment access, exercises they like or can't/won't do, and
+their goal for the block — go ahead and propose a full plan in plain text: a name,
+the weekly day-by-day template (day label, exercises with set counts and rep ranges),
+which muscle groups to prioritize and why, weeks planned (including the deload), and
+a one-sentence \`goal\` summary. Use the recent workout data, past mesocycles, health
+metrics, remembered facts, and notes below to ground the plan — don't re-ask for
+anything already answered by them.
+
+If they gave little or nothing, do NOT propose a full plan yet. Ask a short, numbered
+set of clarifying questions covering only what you don't already know:
+1. Training days per week
+2. Session length / time available
+3. Equipment access (home gym, commercial gym, minimal equipment, etc.)
+4. Exercises they like or specifically cannot/won't do
+5. Their goal for this block (strength, hypertrophy, a specific weak point, returning
+   from a break, etc.)
+
+Once you and the user land on a plan, help them write a single concise \`goal\`
+sentence for the mesocycle's \`goal\` field that captures the intent of the block.
+${MESO_JSON_CONTRACT}`
 }

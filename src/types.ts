@@ -206,8 +206,15 @@ export interface CoachThread {
   weeks: number
   /** Overrides `weeks`: a single most-recent session, or the entire history. */
   scope?: 'last' | 'all'
+  /** Special conversation mode with its own system prompt. Absent = normal coaching chat. */
+  mode?: 'meso-plan'
   messages: CoachMessage[]
   deleted?: boolean
+  /** In-memory mesocycle produced from this thread via "Generate draft" (mode: 'meso-plan').
+   *  Not saved to the app's mesocycles until the user reviews and confirms it. */
+  draftMeso?: Mesocycle
+  /** Exercise names in `draftMeso` that didn't match anything in the app's known exercise list. */
+  draftUnmatchedExercises?: string[]
 }
 
 export interface CoachMemory {

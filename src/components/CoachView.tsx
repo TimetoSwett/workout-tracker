@@ -1,10 +1,24 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
-import type { CoachMessage, CoachThread, Goal, Philosophy, Profile, Workout } from '../types'
-import { setSettings, useStore } from '../store'
+import type { CoachMessage, CoachThread, Goal, Mesocycle, Philosophy, Profile, Workout } from '../types'
+import { setSettings, saveMesocycle, useStore } from '../store'
+import { sync } from '../sync'
+import { dropboxConfigured } from '../dropbox'
 import { aiChat } from '../ai'
-import { MEMORY_SYSTEM, PHILOSOPHY_LABELS, coachSystem, compileHistorySummary, compileWorkouts } from '../prompts'
+import {
+  MEMORY_SYSTEM,
+  MESO_DRAFT_TRIGGER,
+  PHILOSOPHY_LABELS,
+  coachSystem,
+  compileHistorySummary,
+  compileWorkouts,
+  mesoPlanSystem,
+} from '../prompts'
+import { buildMesoDraft, collectKnownExerciseNames, parseMesoDraftJson } from '../mesoDraft'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
+import { MesoDraftReview } from './MesoDraftReview'
+
+export type CoachIntent = 'plan-meso'
 
 type Win = 'last' | 'all' | number
 const WINDOWS: { key: Win; label: string }[] = [
@@ -25,8 +39,18 @@ function uid(): string {
   return crypto.randomUUID()
 }
 
-export function CoachView() {
-  const { workouts, settings, mesocycles } = useStore()
+interface Props {
+  /** Set once by a caller (e.g. the "Plan next meso" link from Mesocycles) to auto-start
+   *  that mode on mount. Consumed via `onIntentHandled` so it doesn't re-fire. */
+  intent?: CoachIntent | null
+  onIntentHandled?: () => void
+  /** Called after a draft mesocycle is accepted and saved, so a caller can e.g. switch
+   *  to the Mesocycles tab to show it landed. */
+  onDraftAccepted?: () => void
+}
+
+export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = {}) {
+  const { workouts, settings, mesocycles, templates } = useStore()
   const [, force] = useState(0)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [input, setInput] = useState('')
@@ -35,8 +59,18 @@ export function CoachView() {
   const [search, setSearch] = useState('')
   const [showSetup, setShowSetup] = useState(false)
   const [win, setWin] = useState<Win>(4)
+  const [draftBusy, setDraftBusy] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
 
   useEffect(() => subscribeCoach(() => force((n) => n + 1)), [])
+
+  useEffect(() => {
+    if (intent === 'plan-meso' && settings.ai?.apiKey) {
+      planMeso()
+      onIntentHandled?.()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [intent])
 
   const ai = settings.ai
   const threads = getThreads()
@@ -113,6 +147,16 @@ export function CoachView() {
       : '\n\n# WORKOUT DATA\n\n' + compileWorkouts(ws, settings, mesocycles)
   }
 
+  function systemFor(thread: CoachThread): string {
+    if (thread.mode === 'meso-plan') {
+      return (
+        mesoPlanSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory, mesocycles) +
+        dataBlock(thread)
+      )
+    }
+    return coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) + dataBlock(thread)
+  }
+
   async function run(thread: CoachThread, history: CoachMessage[], userMsg: CoachMessage, isAnalysis: boolean) {
     if (!ai) return
     setBusy(true)
@@ -121,8 +165,7 @@ export function CoachView() {
     try {
       const reply = await aiChat(
         ai,
-        coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) +
-          dataBlock(thread),
+        systemFor(thread),
         history.concat(userMsg).map((m) => ({ role: m.role, content: m.content })),
       )
       const replyMsg: CoachMessage = { role: 'assistant', content: reply, at: Date.now() }
@@ -198,6 +241,92 @@ export function CoachView() {
     void run(thread, [], msg, true)
   }
 
+  function planMeso() {
+    const thread: CoachThread = {
+      id: uid(),
+      title: 'Plan next meso',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      philosophy: settings.philosophy,
+      weeks: typeof win === 'number' ? win : 4,
+      ...(typeof win === 'string' ? { scope: win } : {}),
+      mode: 'meso-plan',
+      messages: [],
+    }
+    setActiveId(thread.id)
+    const msg: CoachMessage = {
+      role: 'user',
+      content: 'Help me plan my next mesocycle.',
+      at: Date.now(),
+    }
+    void run(thread, [], msg, false)
+  }
+
+  /** Asks the model to finalize the agreed-on plan as JSON (see MESO_JSON_CONTRACT),
+   *  validates the reply, retries once with a correction if it doesn't parse/validate,
+   *  then stores the resulting in-memory Mesocycle draft on the thread. Nothing is
+   *  saved to the app's mesocycles here — that's a separate review/save step. */
+  async function generateDraft() {
+    if (!ai || !active || active.mode !== 'meso-plan' || draftBusy) return
+    setDraftBusy(true)
+    setDraftError(null)
+    const sys = systemFor(active)
+    const base = active.messages.map((m) => ({ role: m.role, content: m.content }))
+    const triggerMsgs = [...base, { role: 'user' as const, content: MESO_DRAFT_TRIGGER }]
+    try {
+      let reply = await aiChat(ai, sys, triggerMsgs)
+      try {
+        const parsed = parseMesoDraftJson(reply)
+        applyDraft(parsed)
+        return
+      } catch (firstErr) {
+        const fixMsgs = [
+          ...triggerMsgs,
+          { role: 'assistant' as const, content: reply },
+          {
+            role: 'user' as const,
+            content: `That reply didn't match the required JSON contract: ${
+              firstErr instanceof Error ? firstErr.message : String(firstErr)
+            }. Reply with ONLY the corrected JSON in a single \`\`\`json code block — no explanation, no other text.`,
+          },
+        ]
+        reply = await aiChat(ai, sys, fixMsgs)
+        const parsed = parseMesoDraftJson(reply)
+        applyDraft(parsed)
+      }
+    } catch (e) {
+      setDraftError(
+        `Couldn't produce a valid mesocycle draft: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    } finally {
+      setDraftBusy(false)
+    }
+
+    function applyDraft(parsed: ReturnType<typeof parseMesoDraftJson>) {
+      const known = collectKnownExerciseNames(workouts, templates, mesocycles)
+      const { meso, unmatchedExerciseNames } = buildMesoDraft(parsed, known)
+      upsertThread({ ...active!, draftMeso: meso, draftUnmatchedExercises: unmatchedExerciseNames, updatedAt: Date.now() })
+      void syncCoach()
+    }
+  }
+
+  /** Nothing is written to the app's mesocycles until this runs — `generateDraft`
+   *  only ever stores an in-memory draft on the thread. */
+  function acceptDraft(meso: Mesocycle) {
+    if (!active) return
+    saveMesocycle(meso)
+    if (dropboxConfigured(settings)) void sync()
+    upsertThread({ ...active, draftMeso: undefined, draftUnmatchedExercises: undefined, updatedAt: Date.now() })
+    void syncCoach()
+    onDraftAccepted?.()
+  }
+
+  function discardDraft() {
+    if (!active) return
+    upsertThread({ ...active, draftMeso: undefined, draftUnmatchedExercises: undefined, updatedAt: Date.now() })
+    void syncCoach()
+  }
+
   if (!ai?.apiKey) {
     return (
       <div class="view narrow">
@@ -241,6 +370,11 @@ export function CoachView() {
             Analyze
           </button>
         </div>
+        <div class="btn-row" style={{ marginTop: 8 }}>
+          <button class="btn ghost" onClick={planMeso} disabled={busy}>
+            📅 Plan next meso
+          </button>
+        </div>
         <div class="muted small">
           {(() => {
             const n = windowOf(active ? (active.scope ?? active.weeks) : win).length
@@ -257,7 +391,8 @@ export function CoachView() {
         <div class="card chat-card assistant">
           <div class="chat-label">Conversation</div>
           <div class="muted small" style={{ marginBottom: 6 }}>
-            {active.title} · philosophy {PHILOSOPHY_LABELS[active.philosophy]}
+            {active.title}
+            {active.mode === 'meso-plan' ? ' · meso planning' : ` · philosophy ${PHILOSOPHY_LABELS[active.philosophy]}`}
           </div>
           <div class="chat-body small muted">
             {active.messages.length} messages — data context: last {active.weeks}w attached to every
@@ -267,6 +402,11 @@ export function CoachView() {
             <button class="btn small ghost" onClick={() => setActiveId(null)}>
               All conversations
             </button>
+            {active.mode === 'meso-plan' && (
+              <button class="btn small primary" onClick={generateDraft} disabled={busy || draftBusy}>
+                {draftBusy ? 'Generating draft…' : '📋 Generate draft'}
+              </button>
+            )}
             <button
               class="btn small danger"
               onClick={() => {
@@ -314,6 +454,21 @@ export function CoachView() {
       {busy && <div class="card chat-card assistant muted">Thinking…</div>}
 
       {error && <div class="card error-card">{error}</div>}
+
+      {draftError && <div class="card error-card">{draftError}</div>}
+
+      {active?.draftMeso && (
+        <MesoDraftReview
+          key={active.draftMeso.id}
+          meso={active.draftMeso}
+          settings={settings}
+          workouts={workouts}
+          templates={templates}
+          mesocycles={mesocycles}
+          onAccept={acceptDraft}
+          onDiscard={discardDraft}
+        />
+      )}
 
       <div class="followup-bar">
         <input
