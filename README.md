@@ -29,9 +29,17 @@ The app is also wrapped with [Capacitor](https://capacitorjs.com) into a real
 Android app (`android/`). It's not on the Play Store, so you install it by
 sideloading the built APK:
 
-1. Get `app-release.apk` from whoever built it (see "Building the Android
-   APK" below) — email, Drive, USB cable, whatever's easiest — and copy it
-   onto your phone.
+1. Download the APK from GitHub:
+   - **Tagged versions:** the repo's **Releases** page. Each `v*` tag has
+     `workout-tracker-<tag>-release.apk` attached.
+   - **Latest `main` build:** **Actions → Build Android APK** → open the
+     newest green run → **Artifacts** → download `workout-tracker-<sha>-…`.
+     It arrives as a `.zip`, so unzip it to get the `.apk`.
+
+   Get it onto your phone however is easiest: open the page in the phone's
+   browser, or use Drive or a USB cable. Only use `-release` APKs for
+   day-to-day installs. A `-debug-signed` APK won't update over a release
+   install (see `android/KEYSTORE.md`).
 2. On your phone: **Settings → Apps → Special access → Install unknown apps**
    (on some phones: **Settings → Security**) → pick the app you'll open the
    file with (e.g. Files, Chrome, or your email/Drive app) → enable **Allow
@@ -93,6 +101,19 @@ This uses Cloudflare's Git-connect build, not a GitHub Actions job, so no Cloudf
 
 ### Building the Android APK
 
+**On GitHub (no local toolchain needed):** `.github/workflows/android-apk.yml`
+builds the APK on an x86 runner. It runs on every push to `main` that touches
+app or `android/` code, on every `v*` tag, and on demand (**Actions → Build
+Android APK → Run workflow**). The APK is uploaded as a run artifact, and on
+`v*` tags it is also attached to a GitHub Release. The APK is signed with the
+release key if the four `ANDROID_*` repo secrets are set (setup in
+`android/KEYSTORE.md`). If they aren't, you get a `-debug-signed` APK, and the
+run summary warns you.
+
+To cut a release: `git tag v1.2.3 && git push origin v1.2.3`.
+
+**Locally:**
+
 Requires a JDK (17+) and the Android SDK (`platforms;android-34` or newer,
 `build-tools`) installed locally, with `JAVA_HOME` and `ANDROID_HOME` (or
 `ANDROID_SDK_ROOT`) set in your shell — Gradle needs both to build. The SDK
@@ -114,7 +135,9 @@ release key described in `android/KEYSTORE.md` (gitignored — the keystore
 and its passwords never enter this repo). If `android/keystore.properties`
 is missing, the release build falls back to an **unsigned** APK instead of
 failing, so a machine without the release key can still build and verify —
-just not produce something installable without a debug-signed variant.
+just not produce something installable. Add `-PdebugSignRelease` to the Gradle
+command (`./gradlew assembleRelease -PdebugSignRelease`) to debug-sign it
+instead, as CI does.
 
 There's also `npm run android:install`, which does the above and then
 `adb install -r` onto a device connected over USB/ADB — useful for testing

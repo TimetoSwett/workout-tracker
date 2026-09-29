@@ -33,6 +33,47 @@ machines without the key can still build.
    the Play Store), that just means reinstalling instead of updating in place,
    but keeping the key lets you update normally.
 
+## Signing APKs built on GitHub Actions
+
+`.github/workflows/android-apk.yml` builds the APK on GitHub. To have it sign
+with this release key, add four repository secrets. Do this yourself on the
+machine that holds the `.jks`. Never paste these values into an issue or chat.
+
+1. Base64-encode the keystore (single line, no wrapping):
+
+   ```sh
+   base64 -w0 ~/.android/workout-tracker/release.jks > release.jks.b64   # Linux
+   base64 -i ~/.android/workout-tracker/release.jks -o release.jks.b64   # macOS
+   ```
+
+2. GitHub repo → **Settings → Secrets and variables → Actions → New
+   repository secret**, and add:
+
+   | Secret | Value |
+   | --- | --- |
+   | `ANDROID_KEYSTORE_BASE64` | contents of `release.jks.b64` |
+   | `ANDROID_KEYSTORE_PASSWORD` | `storePassword` from `keystore.properties` |
+   | `ANDROID_KEY_ALIAS` | `keyAlias` from `keystore.properties` |
+   | `ANDROID_KEY_PASSWORD` | `keyPassword` from `keystore.properties` |
+
+   Or with the GitHub CLI, from the repo directory:
+
+   ```sh
+   gh secret set ANDROID_KEYSTORE_BASE64 < release.jks.b64
+   gh secret set ANDROID_KEYSTORE_PASSWORD   # prompts, input hidden
+   gh secret set ANDROID_KEY_ALIAS
+   gh secret set ANDROID_KEY_PASSWORD
+   ```
+
+3. Delete `release.jks.b64` (`shred -u release.jks.b64` on Linux).
+
+The workflow decodes the keystore into the runner's temp dir, writes a
+`keystore.properties` for the build, and deletes both at the end of the job.
+If any of the four secrets is missing, it builds a **debug-signed** APK instead
+(artifact name ends in `-debug-signed`). That APK installs, but it will not
+update over a release-signed install. You would have to uninstall first, which
+wipes on-device app data.
+
 ## Never
 
 - Never commit `*.jks`, `*.keystore`, or `keystore.properties` (all
