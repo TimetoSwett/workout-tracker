@@ -52,5 +52,25 @@ export function compileMetrics(metrics: DailyMetric[], settings: Settings, days 
     const avg = sl.reduce((sum, m) => sum + (m.sleepMin ?? 0), 0) / sl.length
     lines.push(`Sleep: avg ${(avg / 60).toFixed(1)}h/night (${sl.length} days with data)`)
   }
+  const cal = recent.filter((m) => m.calories != null)
+  if (cal.length) {
+    const avgCal = cal.reduce((sum, m) => sum + (m.calories ?? 0), 0) / cal.length
+    const macro = (field: 'proteinG' | 'carbsG' | 'fatG') => {
+      const withField = recent.filter((m) => m[field] != null)
+      if (!withField.length) return null
+      return Math.round(withField.reduce((sum, m) => sum + (m[field] ?? 0), 0) / withField.length)
+    }
+    const protein = macro('proteinG')
+    const carbs = macro('carbsG')
+    const fat = macro('fatG')
+    const macroParts = [
+      protein != null ? `${protein}g protein` : null,
+      carbs != null ? `${carbs}g carbs` : null,
+      fat != null ? `${fat}g fat` : null,
+    ].filter((p): p is string => p != null)
+    lines.push(
+      `Logged nutrition: avg ${Math.round(avgCal)} kcal/day${macroParts.length ? ` (${macroParts.join(', ')})` : ''} (${cal.length} days with data)`,
+    )
+  }
   return lines.join('\n')
 }

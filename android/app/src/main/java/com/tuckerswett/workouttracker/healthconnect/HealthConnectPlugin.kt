@@ -5,6 +5,7 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BodyFatRecord
+import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
@@ -29,10 +30,10 @@ import java.util.TreeMap
 import kotlin.reflect.KClass
 
 /**
- * Bridges Android Health Connect (read-only) into the web app for SWE-31. Samsung Health,
+ * Bridges Android Health Connect (read-only) into the web app for SWE-31/SWE-32. Samsung Health,
  * MyFitnessPal, and anything else on the phone write into Health Connect; this plugin just
- * reads steps/sleep/weight/body fat/resting HR back out and hands per-day totals to JS, which
- * merges them into `metricsStore` the same way it merges a Samsung CSV import.
+ * reads steps/sleep/weight/body fat/resting HR/nutrition back out and hands per-day totals to
+ * JS, which merges them into `metricsStore` the same way it merges a Samsung CSV import.
  */
 @CapacitorPlugin(name = "HealthConnect")
 class HealthConnectPlugin : Plugin() {
@@ -43,6 +44,7 @@ class HealthConnectPlugin : Plugin() {
         HealthPermission.getReadPermission(WeightRecord::class),
         HealthPermission.getReadPermission(BodyFatRecord::class),
         HealthPermission.getReadPermission(RestingHeartRateRecord::class),
+        HealthPermission.getReadPermission(NutritionRecord::class),
     )
 
     private lateinit var permissionLauncher: ActivityResultLauncher<Set<String>>
@@ -183,6 +185,18 @@ class HealthConnectPlugin : Plugin() {
         average(readAll(hc, RestingHeartRateRecord::class, filter), { dayFor(it.time) }, { it.beatsPerMinute.toDouble() })
             .forEach { (date, avg) -> dayObj(date).put("restingHr", avg) }
 
+        // Nutrition (e.g. MyFitnessPal logs one NutritionRecord per meal): sum calories and
+        // macros per local day, attributed to the record's start time.
+        val nutritionRecords = readAll(hc, NutritionRecord::class, filter)
+        sum(nutritionRecords, { dayFor(it.startTime) }, { it.energy?.inKilocalories })
+            .forEach { (date, total) -> dayObj(date).put("calories", total) }
+        sum(nutritionRecords, { dayFor(it.startTime) }, { it.protein?.inGrams })
+            .forEach { (date, total) -> dayObj(date).put("proteinG", total) }
+        sum(nutritionRecords, { dayFor(it.startTime) }, { it.totalCarbohydrate?.inGrams })
+            .forEach { (date, total) -> dayObj(date).put("carbsG", total) }
+        sum(nutritionRecords, { dayFor(it.startTime) }, { it.totalFat?.inGrams })
+            .forEach { (date, total) -> dayObj(date).put("fatG", total) }
+
         return days
     }
 
@@ -194,6 +208,18 @@ class HealthConnectPlugin : Plugin() {
             acc[1] += 1.0
         }
         return sums.mapValues { (_, acc) -> acc[0] / acc[1] }
+    }
+
+    /** Sums a nullable numeric field per local day, skipping records where it's absent
+     *  (Health Connect nutrition fields are all optional — MyFitnessPal may omit some). */
+    private fun <T> sum(records: List<T>, dateOf: (T) -> String, valueOf: (T) -> Double?): Map<String, Double> {
+        val sums = LinkedHashMap<String, Double>()
+        for (r in records) {
+            val value = valueOf(r) ?: continue
+            val date = dateOf(r)
+            sums[date] = (sums[date] ?: 0.0) + value
+        }
+        return sums
     }
 
     /** Pages through every record in range — Health Connect caps a single read at 1000 rows. */

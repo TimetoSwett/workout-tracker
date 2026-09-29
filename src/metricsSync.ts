@@ -34,6 +34,10 @@ function mergeRecord(a: DailyMetric, b: DailyMetric): DailyMetric {
     steps: newer.steps ?? older.steps,
     sleepMin: newer.sleepMin ?? older.sleepMin,
     restingHr: newer.restingHr ?? older.restingHr,
+    calories: newer.calories ?? older.calories,
+    proteinG: newer.proteinG ?? older.proteinG,
+    carbsG: newer.carbsG ?? older.carbsG,
+    fatG: newer.fatG ?? older.fatG,
     source: newer.source ?? older.source,
     updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
   }

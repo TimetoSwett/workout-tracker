@@ -192,6 +192,10 @@ export interface DailyMetric {
   steps?: number
   sleepMin?: number
   restingHr?: number
+  calories?: number
+  proteinG?: number
+  carbsG?: number
+  fatG?: number
   updatedAt: number
   source?: 'samsung' | 'manual' | 'healthconnect'
 }

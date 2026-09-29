@@ -438,7 +438,7 @@ export function SettingsView() {
               <p class="muted small">
                 {hcAvailability.needsUpdate
                   ? 'Health Connect is installed but needs an update before it can share data.'
-                  : "Health Connect isn't installed. It's how Samsung Health and MyFitnessPal share steps, sleep, and weight with other apps."}
+                  : "Health Connect isn't installed. It's how Samsung Health and MyFitnessPal share steps, sleep, weight, and nutrition with other apps."}
               </p>
               <button class="btn ghost wide" onClick={() => openExternal(HEALTH_CONNECT_PLAY_STORE_URL)}>
                 Open Health Connect in Play Store
@@ -447,9 +447,11 @@ export function SettingsView() {
           ) : (
             <>
               <p class="muted small">
-                Reads steps, sleep, weight, body fat, and resting heart rate from Health Connect — whatever
-                Samsung Health, MyFitnessPal, or other connected apps write there. Re-sync anytime; duplicates
-                merge.
+                Reads steps, sleep, weight, body fat, resting heart rate, and logged calories/macros from Health
+                Connect — whatever Samsung Health, MyFitnessPal, or other connected apps write there. For
+                calories and macros, turn on MyFitnessPal's Health Connect link (Settings → set up your MFP account
+                in the Health Connect app, or from within MyFitnessPal's own app-permissions screen), alongside
+                steps. Re-sync anytime; duplicates merge.
               </p>
               <div class="btn-row">
                 <button class="btn ghost" disabled={hcBusy} onClick={handleHealthConnectConnect}>

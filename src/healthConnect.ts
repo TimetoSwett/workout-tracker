@@ -24,6 +24,10 @@ export interface HealthConnectDay {
   weightKg?: number
   bodyFat?: number
   restingHr?: number
+  calories?: number
+  proteinG?: number
+  carbsG?: number
+  fatG?: number
 }
 
 interface HealthConnectReadResult {
@@ -102,6 +106,10 @@ export async function syncHealthConnectNow(): Promise<HealthConnectSyncResult> {
       if (d.weightKg != null) metric.weight = kgToUnits(d.weightKg, settings.units)
       if (d.bodyFat != null) metric.bodyFat = Math.round(d.bodyFat * 10) / 10
       if (d.restingHr != null) metric.restingHr = Math.round(d.restingHr)
+      if (d.calories != null) metric.calories = Math.round(d.calories)
+      if (d.proteinG != null) metric.proteinG = Math.round(d.proteinG)
+      if (d.carbsG != null) metric.carbsG = Math.round(d.carbsG)
+      if (d.fatG != null) metric.fatG = Math.round(d.fatG)
       const { added } = upsertMetric(metric)
       if (added) counts.added++
       else counts.updated++

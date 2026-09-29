@@ -54,10 +54,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Health Connect (SWE-31): read-only, matches HealthConnectPlugin's requested set. -->
+    <!-- Health Connect (SWE-31/SWE-32): read-only, matches HealthConnectPlugin's requested set. -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <uses-permission android:name="android.permission.health.READ_BODY_FAT" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_NUTRITION" />
 </manifest>
