@@ -13,6 +13,7 @@ import { BodyView } from './components/BodyView'
 import { ActivityView } from './components/ActivityView'
 import { syncMetrics } from './metricsSync'
 import { syncCoach } from './coachStore'
+import { isHealthConnectSupported, syncHealthConnectNow } from './healthConnect'
 
 type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'activity' | 'settings'
 
@@ -29,6 +30,9 @@ export function App() {
       sync()
       syncMetrics()
       syncCoach()
+    }
+    if (isHealthConnectSupported() && settings.healthConnectConnected) {
+      void syncHealthConnectNow()
     }
   }, [])
 

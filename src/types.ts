@@ -177,6 +177,10 @@ export interface Settings {
   dropboxAppKey?: string
   ai?: AISettings
   lastSyncAt?: number
+  /** Android Health Connect: true once permissions have been granted at least once. */
+  healthConnectConnected?: boolean
+  /** Last time Health Connect records were pulled into `metricsStore`. */
+  healthConnectLastSyncAt?: number
 }
 
 export interface DailyMetric {
@@ -187,8 +191,9 @@ export interface DailyMetric {
   leanMass?: number
   steps?: number
   sleepMin?: number
+  restingHr?: number
   updatedAt: number
-  source?: 'samsung' | 'manual'
+  source?: 'samsung' | 'manual' | 'healthconnect'
 }
 
 export interface CoachMessage {

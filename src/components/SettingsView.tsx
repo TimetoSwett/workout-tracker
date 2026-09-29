@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import type { AISettings, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync } from '../sync'
@@ -8,6 +8,14 @@ import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
 import { openExternal } from '../native'
+import {
+  HEALTH_CONNECT_PLAY_STORE_URL,
+  connectHealthConnect,
+  getHealthConnectAvailability,
+  isHealthConnectSupported,
+  syncHealthConnectNow,
+  type HealthConnectAvailability,
+} from '../healthConnect'
 
 /** Quotes a CSV cell, doubling inner quotes and neutralizing spreadsheet formula prefixes. */
 function csvCell(v: string): string {
@@ -47,6 +55,14 @@ export function SettingsView() {
   const [status, setStatus] = useState('')
   const [dbxStatus, setDbxStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
+  const [hcAvailability, setHcAvailability] = useState<HealthConnectAvailability | null>(null)
+  const [hcBusy, setHcBusy] = useState(false)
+  const [hcStatus, setHcStatus] = useState('')
+
+  useEffect(() => {
+    if (!isHealthConnectSupported()) return
+    void getHealthConnectAvailability().then(setHcAvailability)
+  }, [])
 
   function flash(msg: string) {
     setStatus(msg)
@@ -56,6 +72,35 @@ export function SettingsView() {
   function flashDbx(msg: string) {
     setDbxStatus(msg)
     setTimeout(() => setDbxStatus(''), 5000)
+  }
+
+  function flashHc(msg: string) {
+    setHcStatus(msg)
+    setTimeout(() => setHcStatus(''), 5000)
+  }
+
+  async function handleHealthConnectSync() {
+    setHcBusy(true)
+    try {
+      const res = await syncHealthConnectNow()
+      flashHc(res.error ?? `${res.days.added} new days, ${res.days.updated} updated`)
+    } finally {
+      setHcBusy(false)
+    }
+  }
+
+  async function handleHealthConnectConnect() {
+    setHcBusy(true)
+    try {
+      const res = await connectHealthConnect()
+      if (!res.allGranted) {
+        flashHc('Some permissions were denied — reopen Health Connect settings to grant the rest.')
+        return
+      }
+      await handleHealthConnectSync()
+    } finally {
+      setHcBusy(false)
+    }
   }
 
   async function authorize() {
@@ -374,6 +419,52 @@ export function SettingsView() {
           />
         </label>
       </div>
+
+      {isHealthConnectSupported() && (
+        <div class="card">
+          <h3>Health Connect</h3>
+          {hcAvailability == null ? (
+            <p class="muted small">Checking Health Connect…</p>
+          ) : !hcAvailability.available ? (
+            <>
+              <p class="muted small">
+                {hcAvailability.needsUpdate
+                  ? 'Health Connect is installed but needs an update before it can share data.'
+                  : "Health Connect isn't installed. It's how Samsung Health and MyFitnessPal share steps, sleep, and weight with other apps."}
+              </p>
+              <button class="btn ghost wide" onClick={() => openExternal(HEALTH_CONNECT_PLAY_STORE_URL)}>
+                Open Health Connect in Play Store
+              </button>
+            </>
+          ) : (
+            <>
+              <p class="muted small">
+                Reads steps, sleep, weight, body fat, and resting heart rate from Health Connect — whatever
+                Samsung Health, MyFitnessPal, or other connected apps write there. Re-sync anytime; duplicates
+                merge.
+              </p>
+              <div class="btn-row">
+                <button class="btn ghost" disabled={hcBusy} onClick={handleHealthConnectConnect}>
+                  {settings.healthConnectConnected ? 'Re-check permissions' : 'Connect Health Connect'}
+                </button>
+                <button
+                  class="btn ghost"
+                  disabled={hcBusy || !settings.healthConnectConnected}
+                  onClick={handleHealthConnectSync}
+                >
+                  Sync now
+                </button>
+              </div>
+              <p class="muted small">
+                {settings.healthConnectLastSyncAt
+                  ? `Last synced ${new Date(settings.healthConnectLastSyncAt).toLocaleString()}`
+                  : 'Not synced yet.'}
+              </p>
+            </>
+          )}
+          {hcStatus && <p class="muted small">{hcStatus}</p>}
+        </div>
+      )}
 
       <div class="card">
         <h3>Data</h3>

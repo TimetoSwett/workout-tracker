@@ -33,6 +33,7 @@ function mergeRecord(a: DailyMetric, b: DailyMetric): DailyMetric {
     leanMass: newer.leanMass ?? older.leanMass,
     steps: newer.steps ?? older.steps,
     sleepMin: newer.sleepMin ?? older.sleepMin,
+    restingHr: newer.restingHr ?? older.restingHr,
     source: newer.source ?? older.source,
     updatedAt: Math.max(a.updatedAt ?? 0, b.updatedAt ?? 0),
   }
