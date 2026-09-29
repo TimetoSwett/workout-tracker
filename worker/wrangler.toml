@@ -11,9 +11,10 @@ compatibility_date = "2026-09-01"
 [vars]
 ALLOWED_ORIGINS = "https://timetoswett.github.io,https://localhost,capacitor://localhost"
 
-[[r2_buckets]]
-binding = "BUCKET"
-bucket_name = "workout-tracker-sync"
+[[d1_databases]]
+binding = "DB"
+database_name = "workout-tracker-sync"
+database_id = "af107d8a-93ef-4229-a083-bf9d2dbd3134"
 
 # API_TOKEN is a secret, not a var — set with:
 #   wrangler secret put API_TOKEN

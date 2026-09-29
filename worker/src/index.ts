@@ -1,26 +1,35 @@
 /**
  * Backup sync API — a second sync target alongside Dropbox (see src/dropbox.ts,
- * src/sync.ts in the app). Stores the same four JSONL files in R2 and serves
+ * src/sync.ts in the app). Stores the same four JSONL files in D1 and serves
  * them behind an owner-only bearer token, with conditional PUT so a stale
  * write can't clobber a newer one.
  *
- * R2 over D1: the app already treats each file as an opaque JSONL blob and
+ * D1 over R2: the app already treats each file as an opaque JSONL blob and
  * does its own record-level merge (last-writer-wins by id) on the client —
  * see `merge()` in src/sync.ts. The Worker only needs whole-file get/put with
- * a version check, which is exactly what an R2 object + its ETag gives for
- * free. D1 would add a schema and per-record writes the client doesn't need.
+ * a version check, one row per file. R2 would be the more natural fit for
+ * that (an object + its ETag give the version check for free), but this
+ * account's R2 subscription has not been enabled in the Cloudflare dashboard
+ * (a one-time manual step with no API equivalent — `POST .../r2/buckets`
+ * returns error 10042 `NotEntitled` until it's done), which blocked
+ * provisioning the bucket for an unattended deploy. D1 needs no such
+ * enablement, so a single `files` table with the same whole-file semantics
+ * (conditional UPDATE ... WHERE etag = ? in place of R2's `onlyIf`) covers
+ * the same behavior without waiting on that step. R2 remains a reasonable
+ * swap later if the Owner enables it — only this file's storage calls would
+ * change, the HTTP API is unaffected.
  */
 
 export interface Env {
-  BUCKET: R2Bucket
+  DB: D1Database
   /** Long random token pasted into the app's Settings. */
   API_TOKEN: string
   /** Comma-separated list of allowed CORS origins. */
   ALLOWED_ORIGINS: string
 }
 
-/** Logical name (used in the URL) -> R2 object key. Keeps the API from ever
- *  writing an arbitrary key into the bucket. */
+/** Logical name (used in the URL) -> storage row key. Keeps the API from ever
+ *  writing an arbitrary key into the table. */
 const FILES: Record<string, string> = {
   workouts: 'workouts.jsonl',
   mesocycles: 'mesocycles.jsonl',
@@ -29,6 +38,14 @@ const FILES: Record<string, string> = {
 }
 
 const CONTENT_TYPE = 'application/x-ndjson; charset=utf-8'
+
+interface FileRow {
+  name: string
+  content: string
+  etag: string
+  size: number
+  uploaded_at: string
+}
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -82,45 +99,57 @@ async function requireAuth(request: Request, env: Env, cors: HeadersInit): Promi
   return null
 }
 
+/** Content hash used as the row's version token — the same role R2's
+ *  object ETag plays for conditional writes. */
+async function computeEtag(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Format a raw hex etag the way an HTTP ETag header/JSON field is quoted. */
+function toHttpEtag(hex: string): string {
+  return `"${hex}"`
+}
+
+/** Strips the HTTP quoting (and weak-validator prefix) from an ETag header
+ *  value so it can be compared against the raw hex stored in the row. */
+function unquoteEtag(etag: string): string {
+  return etag.replace(/^W\//, '').replace(/^"|"$/g, '')
+}
+
 async function handleList(env: Env, cors: HeadersInit): Promise<Response> {
-  const entries = await Promise.all(
-    Object.entries(FILES).map(async ([name, key]) => {
-      const head = await env.BUCKET.head(key)
-      return head
-        ? { name, etag: head.httpEtag, size: head.size, uploadedAt: head.uploaded.toISOString() }
-        : { name, etag: null, size: 0, uploadedAt: null }
-    }),
-  )
+  const { results } = await env.DB.prepare('SELECT name, etag, size, uploaded_at FROM files').all<FileRow>()
+  const byKey = new Map(results.map((r) => [r.name, r]))
+  const entries = Object.entries(FILES).map(([name, key]) => {
+    const row = byKey.get(key)
+    return row
+      ? { name, etag: toHttpEtag(row.etag), size: row.size, uploadedAt: row.uploaded_at }
+      : { name, etag: null, size: 0, uploadedAt: null }
+  })
   return json({ files: entries }, 200, cors)
 }
 
 async function handleGet(env: Env, key: string, cors: HeadersInit): Promise<Response> {
-  const obj = await env.BUCKET.get(key)
-  if (!obj) return json({ error: 'Not found' }, 404, cors)
-  return new Response(await obj.text(), {
+  const row = await env.DB.prepare('SELECT content, etag FROM files WHERE name = ?').bind(key).first<FileRow>()
+  if (!row) return json({ error: 'Not found' }, 404, cors)
+  return new Response(row.content, {
     status: 200,
-    headers: { 'Content-Type': CONTENT_TYPE, ETag: obj.httpEtag, ...cors },
+    headers: { 'Content-Type': CONTENT_TYPE, ETag: toHttpEtag(row.etag), ...cors },
   })
-}
-
-/** Strips the HTTP quoting (and weak-validator prefix) from an ETag header
- *  value — R2's `onlyIf.etagMatches` compares against the raw etag. */
-function unquoteEtag(etag: string): string {
-  return etag.replace(/^W\//, '').replace(/^"|"$/g, '')
 }
 
 async function handlePut(request: Request, env: Env, key: string, cors: HeadersInit): Promise<Response> {
   const ifMatch = request.headers.get('If-Match')
   const ifNoneMatch = request.headers.get('If-None-Match')
-  const existing = await env.BUCKET.head(key)
+  const existing = await env.DB.prepare('SELECT etag FROM files WHERE name = ?').bind(key).first<Pick<FileRow, 'etag'>>()
 
   if (existing) {
     if (ifNoneMatch === '*') {
-      return json({ error: 'Already exists', etag: existing.httpEtag }, 409, cors)
+      return json({ error: 'Already exists', etag: toHttpEtag(existing.etag) }, 409, cors)
     }
     if (!ifMatch) {
       return json(
-        { error: 'Precondition required: fetch the current ETag and send it as If-Match', etag: existing.httpEtag },
+        { error: 'Precondition required: fetch the current ETag and send it as If-Match', etag: toHttpEtag(existing.etag) },
         428,
         cors,
       )
@@ -130,20 +159,44 @@ async function handlePut(request: Request, env: Env, key: string, cors: HeadersI
     return json({ error: 'Precondition failed: remote file does not exist' }, 412, cors)
   }
 
-  const body = await request.text()
-  const result = await env.BUCKET.put(key, body, {
-    httpMetadata: { contentType: CONTENT_TYPE },
-    // R2's onlyIf wants the raw etag, not the quoted If-Match header form.
-    onlyIf: existing && ifMatch ? { etagMatches: unquoteEtag(ifMatch) } : undefined,
-  })
+  const bodyText = await request.text()
+  const bodyBytes = new TextEncoder().encode(bodyText)
+  const etag = await computeEtag(bodyBytes)
+  const uploadedAt = new Date().toISOString()
 
-  if (!result) {
-    // Lost a race between head() and put(): someone else wrote in between.
-    const current = await env.BUCKET.head(key)
-    return json({ error: 'Precondition failed: remote file changed', etag: current?.httpEtag ?? null }, 412, cors)
+  if (existing) {
+    const result = await env.DB.prepare(
+      'UPDATE files SET content = ?, etag = ?, size = ?, uploaded_at = ? WHERE name = ? AND etag = ?',
+    )
+      .bind(bodyText, etag, bodyBytes.length, uploadedAt, key, unquoteEtag(ifMatch as string))
+      .run()
+
+    if (result.meta.changes === 0) {
+      // Lost a race between the SELECT above and this UPDATE: someone else wrote in between.
+      const current = await env.DB.prepare('SELECT etag FROM files WHERE name = ?').bind(key).first<Pick<FileRow, 'etag'>>()
+      return json(
+        { error: 'Precondition failed: remote file changed', etag: current ? toHttpEtag(current.etag) : null },
+        412,
+        cors,
+      )
+    }
+  } else {
+    try {
+      await env.DB.prepare('INSERT INTO files (name, content, etag, size, uploaded_at) VALUES (?, ?, ?, ?, ?)')
+        .bind(key, bodyText, etag, bodyBytes.length, uploadedAt)
+        .run()
+    } catch {
+      // Lost a race between the SELECT above and this INSERT: someone else created it in between.
+      const current = await env.DB.prepare('SELECT etag FROM files WHERE name = ?').bind(key).first<Pick<FileRow, 'etag'>>()
+      return json(
+        { error: 'Precondition failed: remote file changed', etag: current ? toHttpEtag(current.etag) : null },
+        412,
+        cors,
+      )
+    }
   }
 
-  return json({ etag: result.httpEtag, size: result.size, uploadedAt: result.uploaded.toISOString() }, 200, cors)
+  return json({ etag: toHttpEtag(etag), size: bodyBytes.length, uploadedAt }, 200, cors)
 }
 
 export default {

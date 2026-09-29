@@ -2,13 +2,23 @@
 
 A second sync target alongside Dropbox (`src/dropbox.ts` / `src/sync.ts` in the
 app). Stores the same four JSONL files — `workouts.jsonl`, `mesocycles.jsonl`,
-`metrics.jsonl`, `coach.jsonl` — in an R2 bucket, behind an owner-only bearer
-token, with conditional writes so a stale client can't clobber a newer file.
+`metrics.jsonl`, `coach.jsonl` — as rows in a D1 database, behind an
+owner-only bearer token, with conditional writes so a stale client can't
+clobber a newer file.
 
-R2 over D1: the app already merges records itself on the client (see `merge()`
-in `src/sync.ts`); the Worker only ever needs whole-file get/put plus a
-version check, which R2 objects + their ETag give for free. D1 would add a
-schema and per-record writes nothing here needs.
+D1 over R2: the app already merges records itself on the client (see
+`merge()` in `src/sync.ts`); the Worker only ever needs whole-file get/put
+plus a version check. R2 objects + their ETag would give that for free and
+were the original choice, but this account's R2 subscription was never
+enabled in the Cloudflare dashboard — a one-time manual step
+(`R2 → Enable R2`) with no API equivalent (`POST .../r2/buckets` returns
+error `10042 NotEntitled` until it's done), which blocked provisioning the
+bucket for an unattended deploy. D1 needs no such enablement step, so this
+uses a single `files` table (one row per file: `name`, `content`, `etag`,
+`size`, `uploaded_at`) with the same whole-file semantics — a conditional
+`UPDATE ... WHERE etag = ?` standing in for R2's `onlyIf`. If you'd rather
+use R2: enable it in the dashboard, then only `src/index.ts`'s storage calls
+need to change — the HTTP API is unaffected.
 
 ## API
 
@@ -57,10 +67,25 @@ with the current GitHub Pages origin and Capacitor's default Android WebView
 origins. Add the Cloudflare app origin once that host is chosen and
 update/redeploy.
 
-## Owner setup (one-time)
+## Deployed
 
-You need your own Cloudflare account (free tier is enough — Workers + R2 both
-have a free tier).
+Live at `https://workout-tracker-sync.tuckerswett.workers.dev`. This Worker,
+its D1 database (schema migrated), and its `API_TOKEN` secret were
+provisioned and deployed directly through the connected Cloudflare API
+(account `670bd9fabd96b1e7188896d7f3efdc14`, "Tuckerswett@pm.me's Account")
+— no Owner action needed for the base deploy. `wrangler deploy` uploads code
+but does not apply D1 migrations by itself; after adding a migration, also
+run `npm run migrate:remote` (see "Local dev" below for the local
+equivalent) so the schema in production matches what the Worker expects —
+this deploy's `0001_create_files.sql` was applied this way. The token value
+itself is never printed in a comment, doc, or transcript — see "Rotate or
+retrieve the token" below.
+
+## Owner setup (optional)
+
+You only need to do any of this if you want to manage the Worker yourself
+going forward instead of through the connected API — e.g. to rotate the
+token, change the schema, or redeploy after edits.
 
 1. **Install dependencies** (from this `worker/` directory):
    ```sh
@@ -71,33 +96,30 @@ have a free tier).
    npx wrangler login
    ```
    This opens a browser to authorize `wrangler` against your account.
-3. **Create the R2 bucket** (name must match `wrangler.toml`'s `bucket_name`):
+3. **Rotate or retrieve the token:** the deploy already set `API_TOKEN` as a
+   Worker secret. To rotate it:
    ```sh
-   npx wrangler r2 bucket create workout-tracker-sync
+   openssl rand -hex 32          # generate a new value
+   npx wrangler secret put API_TOKEN   # paste it when prompted
    ```
-4. **Generate a long random token** and save it somewhere safe (a password
-   manager) — you'll paste it in two places:
-   ```sh
-   openssl rand -hex 32
-   ```
-5. **Store the token as a Worker secret** (paste the value from step 4 when
-   prompted; it is never written to a file or the repo):
-   ```sh
-   npx wrangler secret put API_TOKEN
-   ```
-6. **Deploy:**
+   Secret values can't be read back from Cloudflare once set (by design) —
+   if you've lost the current token, rotate it and update the app's
+   Settings with the new value once SWE-30 adds that UI.
+4. **Redeploy after any code change:**
    ```sh
    npx wrangler deploy
    ```
-   This prints the Worker's URL (`https://workout-tracker-sync.<your-subdomain>.workers.dev`
-   by default).
-7. **Optional — custom domain** (e.g. `api.tucker-swett.com`): in the
+   If the change added a D1 migration, also apply it to production —
+   `deploy` does not do this for you:
+   ```sh
+   npm run migrate:remote
+   ```
+5. **Optional — custom domain** (e.g. `api.tucker-swett.com`): in the
    Cloudflare dashboard, go to the deployed Worker → **Settings → Domains &
    Routes → Add → Custom Domain**, and enter the hostname. Requires that
    domain's DNS to already be on Cloudflare.
-8. **Paste the token and the Worker URL into the app's Settings** once the
-   Cloudflare sync UI lands — same token as step 4/5, so the app can
-   authenticate.
+6. **Paste the token and the Worker URL into the app's Settings** once the
+   Cloudflare sync UI lands, so the app can authenticate.
 
 ### Verify it's live
 
@@ -120,7 +142,14 @@ curl -i -H "Authorization: Bearer <token>" https://<url>/files/workouts
 ```sh
 npm install
 cp .dev.vars.example .dev.vars   # fill in a throwaway local token
-npm run dev                      # wrangler dev on http://localhost:8787, uses a local R2 emulation
+npm run dev                      # wrangler dev on http://localhost:8787, uses a local D1 emulation
+```
+
+`wrangler dev` creates the local D1 database automatically but does not run
+migrations for it. Apply the schema once per fresh local DB:
+
+```sh
+npm run migrate:local
 ```
 
 `npm run typecheck` runs `tsc --noEmit`.

@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS files (
+  name TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  etag TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  uploaded_at TEXT NOT NULL
+);
