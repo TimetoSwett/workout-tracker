@@ -111,12 +111,15 @@ jobs:
 
       - name: Verify signature and name APK
         id: apk
+        env:
+          # On PRs GITHUB_SHA is the synthetic merge commit; name by the head.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
           src=android/app/build/outputs/apk/release/app-release.apk
           "$apksigner" verify --verbose --print-certs "$src"
 
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then label="$GITHUB_REF_NAME"; else label="${GITHUB_SHA::7}"; fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then label="$GITHUB_REF_NAME"; else label="${HEAD_SHA::7}"; fi
           name="workout-tracker-${label}-${{ steps.signing.outputs.mode }}"
           mkdir -p "$RUNNER_TEMP/apk"
           cp "$src" "$RUNNER_TEMP/apk/$name.apk"
