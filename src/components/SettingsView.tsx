@@ -4,6 +4,7 @@ import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../s
 import { sync } from '../sync'
 import { syncMetrics } from '../metricsSync'
 import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, testConnection } from '../dropbox'
+import { disconnectCloudflare, testCloudflareConnection } from '../cloudflare'
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
@@ -46,6 +47,9 @@ export function SettingsView() {
   const [status, setStatus] = useState('')
   const [dbxStatus, setDbxStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
+  const [cfEndpoint, setCfEndpoint] = useState(settings.cloudflareEndpoint ?? '')
+  const [cfToken, setCfToken] = useState('')
+  const [cfStatus, setCfStatus] = useState('')
 
   function flash(msg: string) {
     setStatus(msg)
@@ -55,6 +59,11 @@ export function SettingsView() {
   function flashDbx(msg: string) {
     setDbxStatus(msg)
     setTimeout(() => setDbxStatus(''), 5000)
+  }
+
+  function flashCf(msg: string) {
+    setCfStatus(msg)
+    setTimeout(() => setCfStatus(''), 5000)
   }
 
   async function authorize() {
@@ -78,6 +87,26 @@ export function SettingsView() {
 
   async function checkConnection() {
     flashDbx((await testConnection()) ?? 'Dropbox connection works ✓')
+  }
+
+  function saveCloudflare() {
+    const endpoint = cfEndpoint.trim().replace(/\/+$/, '')
+    if (!endpoint) return flashCf('Enter the Worker URL first')
+    const token = cfToken.trim() || settings.cloudflareToken
+    if (!token) return flashCf('Enter the token first')
+    setSettings({ ...settings, cloudflareEnabled: true, cloudflareEndpoint: endpoint, cloudflareToken: token })
+    setCfToken('')
+    flashCf('Saved ✓')
+    void sync()
+  }
+
+  function toggleCloudflare(enabled: boolean) {
+    setSettings({ ...settings, cloudflareEnabled: enabled })
+    if (enabled) void sync()
+  }
+
+  async function checkCloudflareConnection() {
+    flashCf((await testCloudflareConnection()) ?? 'Cloudflare connection works ✓')
   }
 
   async function saveAI() {
@@ -265,6 +294,70 @@ export function SettingsView() {
             </li>
           </ol>
         )}
+      </div>
+
+      <div class="card">
+        <h3>Cloudflare sync</h3>
+        <p class="muted small">
+          A second sync target — useful for restoring on a new device when Dropbox isn't set up there yet.
+          {settings.cloudflareLastSyncAt && <> · last synced {new Date(settings.cloudflareLastSyncAt).toLocaleString()}</>}
+        </p>
+        {settings.cloudflareLastError && <p class="warn small">{settings.cloudflareLastError}</p>}
+
+        {settings.cloudflareEndpoint && settings.cloudflareToken ? (
+          <div class="setting-row">
+            <span>Enabled</span>
+            <div class="seg">
+              <button class={settings.cloudflareEnabled ? 'active' : ''} onClick={() => toggleCloudflare(true)}>
+                On
+              </button>
+              <button class={!settings.cloudflareEnabled ? 'active' : ''} onClick={() => toggleCloudflare(false)}>
+                Off
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <input
+          class="text-input"
+          type="text"
+          placeholder="Worker URL (e.g. https://workout-tracker-sync.example.workers.dev)"
+          autocomplete="off"
+          value={cfEndpoint}
+          onInput={(e) => setCfEndpoint((e.target as HTMLInputElement).value)}
+        />
+        <input
+          class="text-input"
+          type="password"
+          placeholder={settings.cloudflareToken ? '•••• saved — enter to replace' : 'Bearer token'}
+          autocomplete="off"
+          value={cfToken}
+          onInput={(e) => setCfToken((e.target as HTMLInputElement).value)}
+        />
+        <div class="btn-row">
+          <button class="btn primary" onClick={saveCloudflare}>
+            Save
+          </button>
+          <button class="btn" disabled={!settings.cloudflareEnabled} onClick={() => sync().then((e) => flashCf(e ?? 'Synced ✓'))}>
+            Sync now
+          </button>
+          <button class="btn ghost" disabled={!settings.cloudflareEndpoint || !settings.cloudflareToken} onClick={checkCloudflareConnection}>
+            Test
+          </button>
+          {settings.cloudflareEndpoint && (
+            <button
+              class="btn ghost danger-text"
+              onClick={() => {
+                disconnectCloudflare()
+                setCfEndpoint('')
+                flashCf('Disconnected')
+              }}
+            >
+              Disconnect
+            </button>
+          )}
+          {cfStatus && <span class="muted small">{cfStatus}</span>}
+        </div>
       </div>
 
       <div class="card">

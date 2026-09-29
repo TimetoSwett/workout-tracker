@@ -177,6 +177,15 @@ export interface Settings {
   dropboxAppKey?: string
   ai?: AISettings
   lastSyncAt?: number
+  /** Off by default even when endpoint/token are already filled in, so pasting
+   *  credentials doesn't start syncing before the user means it to. */
+  cloudflareEnabled?: boolean
+  /** Base URL of the deployed Worker, e.g. https://workout-tracker-sync.example.workers.dev */
+  cloudflareEndpoint?: string
+  /** Bearer token the Worker checks on every request. */
+  cloudflareToken?: string
+  cloudflareLastSyncAt?: number
+  cloudflareLastError?: string
 }
 
 export interface DailyMetric {

@@ -1,5 +1,6 @@
 import type { Settings } from './types'
 import { getState, setSettings } from './store'
+import type { SyncFileName, SyncTarget } from './syncTargets'
 
 const CONTENT_API = 'https://content.dropboxapi.com/2'
 const OAUTH_AUTHORIZE = 'https://www.dropbox.com/oauth2/authorize'
@@ -262,4 +263,19 @@ export async function testConnection(): Promise<string | null> {
   if (error) return error
   if (!res?.ok) return `Token rejected (${res?.status ?? '?'})`
   return null
+}
+
+const PATHS: Record<SyncFileName, string> = {
+  workouts: DATA_PATH,
+  mesocycles: '/mesocycles.jsonl',
+  metrics: '/metrics.jsonl',
+  coach: '/coach.jsonl',
+}
+
+export const dropboxTarget: SyncTarget = {
+  id: 'dropbox',
+  label: 'Dropbox',
+  configured: dropboxConfigured,
+  download: (file) => dropboxDownload(PATHS[file]),
+  upload: (file, content) => dropboxUpload(content, PATHS[file]),
 }

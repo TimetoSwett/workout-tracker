@@ -1,9 +1,8 @@
 import type { CoachMemory, CoachThread } from './types'
-import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
+import { activeTargets, syncFile } from './syncTargets'
 import { getState } from './store'
 
 const KEY = 'wt.coach.v1'
-const COACH_PATH = '/coach.jsonl'
 const MEMORY_ID = 'memory'
 
 const listeners = new Set<() => void>()
@@ -106,42 +105,38 @@ function toJsonl(): string {
   return records.map((r) => JSON.stringify(r)).join('\n') + (records.length ? '\n' : '')
 }
 
+/** Last-writer-wins by id across the local copy and every target's remote
+ *  copy, same rule as workouts/mesocycles/metrics. The single memory record
+ *  merges the same way, keyed by its own `updatedAt`. */
+function mergeAll(contents: string[]): string {
+  const byId = new Map<string, CoachThread>()
+  let memory: CoachMemory | null = null
+  for (const content of contents) {
+    for (const t of parseJsonl(content)) {
+      const cur = byId.get(t.id)
+      if (!cur || (t.updatedAt ?? 0) > (cur.updatedAt ?? 0)) byId.set(t.id, t)
+    }
+    const m = parseMemory(content)
+    if (m && (!memory || m.updatedAt > memory.updatedAt)) memory = m
+  }
+  const threads = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+  const records: (CoachThread | CoachMemory)[] = [...threads]
+  if (memory) records.push(memory)
+  return records.map((r) => JSON.stringify(r)).join('\n') + (records.length ? '\n' : '')
+}
+
 let syncing = false
 
 export async function syncCoach(): Promise<string | null> {
   if (syncing) return null
-  if (!dropboxConfigured(getState().settings)) return 'Dropbox is not connected'
+  const targets = activeTargets(getState().settings)
+  if (!targets.length) return 'No sync target is set up — connect Dropbox or Cloudflare in Settings.'
   syncing = true
   try {
-    const remote = await dropboxDownload(COACH_PATH)
-    if (remote.error) return remote.error
-    const remoteThreads = remote.content ? parseJsonl(remote.content) : []
-    const remoteMemory = remote.content ? parseMemory(remote.content) : null
-
-    const byId = new Map<string, CoachThread>()
-    for (const t of [...data.threads, ...remoteThreads]) {
-      const cur = byId.get(t.id)
-      if (!cur || (t.updatedAt ?? 0) > (cur.updatedAt ?? 0)) byId.set(t.id, t)
-    }
-    const mergedThreads = [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt)
-
-    let memory = data.memory
-    if (remoteMemory && (!memory || remoteMemory.updatedAt > memory.updatedAt)) memory = remoteMemory
-
-    const remoteChanged =
-      remoteThreads.length !== mergedThreads.length ||
-      remoteThreads.some((r) => byId.get(r.id)?.updatedAt !== r.updatedAt) ||
-      (!!remoteMemory && (!memory || remoteMemory.updatedAt !== memory.updatedAt))
-
-    if (remoteChanged) {
-      data = { threads: mergedThreads, memory }
-      const err = await dropboxUpload(toJsonl(), COACH_PATH)
-      if (err) return err
-    } else if (mergedThreads !== data.threads || memory !== data.memory) {
-      data = { threads: mergedThreads, memory }
-    }
+    const { merged, errors } = await syncFile(targets, 'coach', toJsonl(), mergeAll)
+    data = { threads: parseJsonl(merged), memory: parseMemory(merged) }
     save()
-    return null
+    return errors.length ? errors.map((e) => `${e.label}: ${e.message}`).join('; ') : null
   } finally {
     syncing = false
   }

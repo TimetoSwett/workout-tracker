@@ -1,9 +1,7 @@
 import type { DailyMetric } from './types'
-import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
+import { activeTargets, syncFile } from './syncTargets'
 import { getMetrics, setMetrics } from './metricsStore'
 import { getState } from './store'
-
-const METRICS_PATH = '/metrics.jsonl'
 
 function parseJsonl(content: string): DailyMetric[] {
   const out: DailyMetric[] = []
@@ -38,35 +36,28 @@ function mergeRecord(a: DailyMetric, b: DailyMetric): DailyMetric {
   }
 }
 
+function mergeAll(contents: string[]): string {
+  const byDate = new Map<string, DailyMetric>()
+  for (const content of contents) {
+    for (const m of parseJsonl(content)) {
+      const cur = byDate.get(m.date)
+      byDate.set(m.date, cur ? mergeRecord(cur, m) : m)
+    }
+  }
+  return toJsonl([...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)))
+}
+
 let syncing = false
 
 export async function syncMetrics(): Promise<string | null> {
   if (syncing) return null
-  if (!dropboxConfigured(getState().settings)) return 'Dropbox is not connected'
+  const targets = activeTargets(getState().settings)
+  if (!targets.length) return 'No sync target is set up — connect Dropbox or Cloudflare in Settings.'
   syncing = true
   try {
-    const local = getMetrics()
-    const remote = await dropboxDownload(METRICS_PATH)
-    if (remote.error) return remote.error
-    const remoteMetrics = remote.content ? parseJsonl(remote.content) : []
-    const byDate = new Map<string, DailyMetric>()
-    for (const m of [...local, ...remoteMetrics]) {
-      const cur = byDate.get(m.date)
-      byDate.set(m.date, cur ? mergeRecord(cur, m) : m)
-    }
-    const merged = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1))
-    const changedRemote =
-      remoteMetrics.length !== merged.length ||
-      remoteMetrics.some((r) => {
-        const m = byDate.get(r.date)
-        return !m || m.updatedAt !== r.updatedAt
-      })
-    if (changedRemote) {
-      const err = await dropboxUpload(toJsonl(merged), METRICS_PATH)
-      if (err) return err
-    }
-    setMetrics(merged)
-    return null
+    const { merged, errors } = await syncFile(targets, 'metrics', toJsonl(getMetrics()), mergeAll)
+    setMetrics(parseJsonl(merged))
+    return errors.length ? errors.map((e) => `${e.label}: ${e.message}`).join('; ') : null
   } finally {
     syncing = false
   }
