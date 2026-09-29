@@ -107,6 +107,18 @@ class HealthConnectPlugin : Plugin() {
         permissionLauncher.launch(permissions)
     }
 
+    /** Opens Health Connect's own app-permissions screen, for a user who denied a permission
+     *  and needs to grant it outside the in-app request dialog. */
+    @PluginMethod
+    fun openHealthConnectSettings(call: PluginCall) {
+        try {
+            activity.startActivity(HealthConnectClient.getHealthConnectManageDataIntent(context))
+            call.resolve()
+        } catch (e: Exception) {
+            call.reject("Could not open Health Connect: ${e.message}", e)
+        }
+    }
+
     @PluginMethod
     fun readMetrics(call: PluginCall) {
         val hc = client ?: return call.reject("Health Connect is not available")

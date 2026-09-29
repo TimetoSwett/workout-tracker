@@ -12,9 +12,12 @@ import {
   HEALTH_CONNECT_PLAY_STORE_URL,
   connectHealthConnect,
   getHealthConnectAvailability,
+  getHealthConnectPermissions,
   isHealthConnectSupported,
+  openHealthConnectSettings,
   syncHealthConnectNow,
   type HealthConnectAvailability,
+  type HealthConnectPermissionResult,
 } from '../healthConnect'
 
 /** Quotes a CSV cell, doubling inner quotes and neutralizing spreadsheet formula prefixes. */
@@ -56,12 +59,16 @@ export function SettingsView() {
   const [dbxStatus, setDbxStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
   const [hcAvailability, setHcAvailability] = useState<HealthConnectAvailability | null>(null)
+  const [hcPermissions, setHcPermissions] = useState<HealthConnectPermissionResult | null>(null)
   const [hcBusy, setHcBusy] = useState(false)
   const [hcStatus, setHcStatus] = useState('')
 
   useEffect(() => {
     if (!isHealthConnectSupported()) return
-    void getHealthConnectAvailability().then(setHcAvailability)
+    void getHealthConnectAvailability().then((a) => {
+      setHcAvailability(a)
+      if (a.available) void getHealthConnectPermissions().then(setHcPermissions)
+    })
   }, [])
 
   function flash(msg: string) {
@@ -93,8 +100,9 @@ export function SettingsView() {
     setHcBusy(true)
     try {
       const res = await connectHealthConnect()
+      setHcPermissions(res)
       if (!res.allGranted) {
-        flashHc('Some permissions were denied — reopen Health Connect settings to grant the rest.')
+        flashHc('Some permissions were denied — use "Open Health Connect" below to grant the rest.')
         return
       }
       await handleHealthConnectSync()
@@ -445,16 +453,28 @@ export function SettingsView() {
               </p>
               <div class="btn-row">
                 <button class="btn ghost" disabled={hcBusy} onClick={handleHealthConnectConnect}>
-                  {settings.healthConnectConnected ? 'Re-check permissions' : 'Connect Health Connect'}
+                  {hcPermissions?.allGranted ? 'Re-check permissions' : 'Connect Health Connect'}
                 </button>
                 <button
                   class="btn ghost"
-                  disabled={hcBusy || !settings.healthConnectConnected}
+                  disabled={hcBusy || !hcPermissions?.allGranted}
                   onClick={handleHealthConnectSync}
                 >
                   Sync now
                 </button>
               </div>
+              {hcPermissions != null && !hcPermissions.allGranted && (
+                <>
+                  <p class="muted small">
+                    {hcPermissions.granted.length > 0
+                      ? 'Some permissions are still denied.'
+                      : "Health Connect hasn't granted any permissions yet."}
+                  </p>
+                  <button class="btn ghost wide" disabled={hcBusy} onClick={() => openHealthConnectSettings()}>
+                    Open Health Connect
+                  </button>
+                </>
+              )}
               <p class="muted small">
                 {settings.healthConnectLastSyncAt
                   ? `Last synced ${new Date(settings.healthConnectLastSyncAt).toLocaleString()}`

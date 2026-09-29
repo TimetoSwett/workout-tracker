@@ -34,6 +34,7 @@ interface HealthConnectPlugin {
   isAvailable(): Promise<HealthConnectAvailability>
   getGrantedPermissions(): Promise<HealthConnectPermissionResult>
   requestPermissions(): Promise<HealthConnectPermissionResult>
+  openHealthConnectSettings(): Promise<void>
   readMetrics(options: { startEpochMs: number; endEpochMs: number }): Promise<HealthConnectReadResult>
 }
 
@@ -63,6 +64,12 @@ export async function connectHealthConnect(): Promise<HealthConnectPermissionRes
 
 export function getHealthConnectPermissions(): Promise<HealthConnectPermissionResult> {
   return HealthConnect.getGrantedPermissions()
+}
+
+/** Opens Health Connect's own permissions screen — the only fix once the in-app request
+ *  dialog has already been dismissed with some permissions denied. */
+export function openHealthConnectSettings(): Promise<void> {
+  return HealthConnect.openHealthConnectSettings()
 }
 
 /** Rolling lookback window for every sync — simpler and more robust than an incremental
