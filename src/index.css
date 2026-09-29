@@ -10,6 +10,7 @@
   --danger: #e2606b;
   --warn: #e0b341;
   --radius: 14px;
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
   color-scheme: dark;
 }
 
@@ -49,7 +50,7 @@ body {
 
 main {
   flex: 1;
-  padding: 16px 14px calc(84px + env(safe-area-inset-bottom));
+  padding: calc(16px + var(--safe-top)) 14px calc(84px + env(safe-area-inset-bottom));
 }
 
 .view > h1 {
@@ -888,7 +889,7 @@ code {
   }
 
   main {
-    padding: 22px 18px calc(88px + env(safe-area-inset-bottom));
+    padding: calc(22px + var(--safe-top)) 18px calc(88px + env(safe-area-inset-bottom));
   }
 
   .view > h1 {

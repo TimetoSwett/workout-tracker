@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
+import { App as CapacitorApp } from '@capacitor/app'
 import { useStore } from './store'
 import { sync } from './sync'
 import { dropboxConfigured } from './dropbox'
+import { isNative } from './native'
 import { LogView } from './components/LogView'
 import { HistoryView } from './components/HistoryView'
 import { CoachView } from './components/CoachView'
@@ -12,19 +14,45 @@ import { BodyView } from './components/BodyView'
 import { ActivityView } from './components/ActivityView'
 import { syncMetrics } from './metricsSync'
 import { syncCoach } from './coachStore'
+import { isHealthConnectSupported, syncHealthConnectNow } from './healthConnect'
 
 type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'activity' | 'settings'
 
+const DEFAULT_TAB: Tab = 'log'
+
 export function App() {
-  const [tab, setTab] = useState<Tab>('log')
+  const [tab, setTab] = useState<Tab>(DEFAULT_TAB)
   const [coachIntent, setCoachIntent] = useState<CoachIntent | null>(null)
   const { settings } = useStore()
+  const tabRef = useRef(tab)
+  tabRef.current = tab
 
   useEffect(() => {
     if (dropboxConfigured(settings)) {
       sync()
       syncMetrics()
       syncCoach()
+    }
+    if (isHealthConnectSupported() && settings.healthConnectConnected) {
+      void syncHealthConnectNow()
+    }
+  }, [])
+
+  // The app has no browser history stack (no router), so Capacitor's default
+  // back-button behavior — WebView.goBack() else exit — would exit the app
+  // from a single back-press on any tab. Go to the Log tab first instead, and
+  // only exit once already there.
+  useEffect(() => {
+    if (!isNative) return
+    const handle = CapacitorApp.addListener('backButton', () => {
+      if (tabRef.current !== DEFAULT_TAB) {
+        setTab(DEFAULT_TAB)
+      } else {
+        CapacitorApp.exitApp()
+      }
+    })
+    return () => {
+      void handle.then((h) => h.remove())
     }
   }, [])
 

@@ -40,15 +40,18 @@ export function BodyView() {
   const bfPts = window(metrics, wRange, (m) => m.bodyFat)
   const stepsPts = window(metrics, 14, (m) => m.steps)
   const sleepPts = window(metrics, 14, (m) => m.sleepMin)
+  const caloriesPts = window(metrics, 14, (m) => m.calories)
 
   const latest = [...metrics].reverse().find((m) => m.weight != null)
   const latestLean = [...metrics].reverse().find((m) => m.leanMass != null)
+  const latestNutrition = [...metrics].reverse().find((m) => m.calories != null)
   const wAvgNow = avg(weightPts.slice(-7))
   const wAvgPrev = avg(weightPts.slice(-14, -7))
   const wTrend = wAvgNow != null && wAvgPrev != null ? wAvgNow - wAvgPrev : null
 
   const stepsAvg = avg(stepsPts)
   const sleepAvg = avg(sleepPts)
+  const caloriesAvg = avg(caloriesPts)
 
   function flash(msg: string) {
     setToast(msg)
@@ -126,6 +129,33 @@ export function BodyView() {
         </div>
       )}
 
+      {latestNutrition && (
+        <div class="card stat-row">
+          <div>
+            <div class="stat-num">{fmt(latestNutrition.calories!, 0)}</div>
+            <div class="stat-label">calories · {latestNutrition.date}</div>
+          </div>
+          {latestNutrition.proteinG != null && (
+            <div>
+              <div class="stat-num">{fmt(latestNutrition.proteinG, 0)}g</div>
+              <div class="stat-label">protein</div>
+            </div>
+          )}
+          {latestNutrition.carbsG != null && (
+            <div>
+              <div class="stat-num">{fmt(latestNutrition.carbsG, 0)}g</div>
+              <div class="stat-label">carbs</div>
+            </div>
+          )}
+          {latestNutrition.fatG != null && (
+            <div>
+              <div class="stat-num">{fmt(latestNutrition.fatG, 0)}g</div>
+              <div class="stat-label">fat</div>
+            </div>
+          )}
+        </div>
+      )}
+
       {(weightPts.length > 1 || bfPts.length > 1) && (
         <div class="card">
           <div class="setting-row" style={{ justifyContent: 'flex-end' }}>
@@ -180,6 +210,7 @@ export function BodyView() {
 
       {stepsPts.length > 0 && <BarChart title="Steps (14d)" points={stepsPts} avg={stepsAvg} suffix=" steps" />}
       {sleepPts.length > 0 && <BarChart title="Sleep (14d)" points={sleepPts.map((p) => ({ ...p, value: p.value / 60 }))} avg={sleepAvg != null ? sleepAvg / 60 : null} suffix=" h" />}
+      {caloriesPts.length > 0 && <BarChart title="Calories (14d)" points={caloriesPts} avg={caloriesAvg} suffix=" kcal" />}
 
       {toast && <div class="toast visible">{toast}</div>}
     </div>

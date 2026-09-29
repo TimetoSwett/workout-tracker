@@ -3,14 +3,12 @@ import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 // GitHub Pages serves this repo from /workout-tracker/. Cloudflare serves it
-// from the root of its own domain. Cloudflare Pages builds set CF_PAGES=1 and
-// Workers Builds set WORKERS_CI=1, so we can pick the right base automatically
-// without a second config.
-const onCloudflare = process.env.CF_PAGES || process.env.WORKERS_CI
-const base = onCloudflare ? '/' : '/workout-tracker/'
-
-export default defineConfig({
-  base,
+// from the root of its own domain: Cloudflare Pages builds set CF_PAGES=1 and
+// Workers Builds set WORKERS_CI=1. The Android app (via Capacitor) serves it
+// from the WebView root and builds with --mode capacitor. All of those need
+// base '/'.
+export default defineConfig(({ mode }) => ({
+  base: process.env.CF_PAGES || process.env.WORKERS_CI || mode === 'capacitor' ? '/' : '/workout-tracker/',
   plugins: [
     preact(),
     VitePWA({
@@ -36,4 +34,4 @@ export default defineConfig({
       },
     }),
   ],
-})
+}))

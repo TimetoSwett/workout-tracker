@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 import type { AISettings, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync } from '../sync'
@@ -7,6 +7,18 @@ import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, testConnectio
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
+import { openExternal } from '../native'
+import {
+  HEALTH_CONNECT_PLAY_STORE_URL,
+  connectHealthConnect,
+  getHealthConnectAvailability,
+  getHealthConnectPermissions,
+  isHealthConnectSupported,
+  openHealthConnectSettings,
+  syncHealthConnectNow,
+  type HealthConnectAvailability,
+  type HealthConnectPermissionResult,
+} from '../healthConnect'
 
 /** Quotes a CSV cell, doubling inner quotes and neutralizing spreadsheet formula prefixes. */
 function csvCell(v: string): string {
@@ -46,6 +58,18 @@ export function SettingsView() {
   const [status, setStatus] = useState('')
   const [dbxStatus, setDbxStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
+  const [hcAvailability, setHcAvailability] = useState<HealthConnectAvailability | null>(null)
+  const [hcPermissions, setHcPermissions] = useState<HealthConnectPermissionResult | null>(null)
+  const [hcBusy, setHcBusy] = useState(false)
+  const [hcStatus, setHcStatus] = useState('')
+
+  useEffect(() => {
+    if (!isHealthConnectSupported()) return
+    void getHealthConnectAvailability().then((a) => {
+      setHcAvailability(a)
+      if (a.available) void getHealthConnectPermissions().then(setHcPermissions)
+    })
+  }, [])
 
   function flash(msg: string) {
     setStatus(msg)
@@ -57,11 +81,44 @@ export function SettingsView() {
     setTimeout(() => setDbxStatus(''), 5000)
   }
 
+  function flashHc(msg: string) {
+    setHcStatus(msg)
+    setTimeout(() => setHcStatus(''), 5000)
+  }
+
+  async function handleHealthConnectSync() {
+    setHcBusy(true)
+    try {
+      const res = await syncHealthConnectNow()
+      flashHc(res.error ?? `${res.days.added} new days, ${res.days.updated} updated`)
+    } finally {
+      setHcBusy(false)
+    }
+  }
+
+  async function handleHealthConnectConnect() {
+    setHcBusy(true)
+    try {
+      const res = await connectHealthConnect()
+      setHcPermissions(res)
+      if (res.granted.length === 0) {
+        flashHc('Permissions were denied — use "Open Health Connect" below to grant them.')
+        return
+      }
+      if (!res.allGranted) {
+        flashHc('Some permissions were denied — syncing what was granted. Use "Open Health Connect" below to grant the rest.')
+      }
+      await handleHealthConnectSync()
+    } finally {
+      setHcBusy(false)
+    }
+  }
+
   async function authorize() {
     const key = appKey.trim()
     if (!key) return flashDbx('Enter your app key first')
     setSettings({ ...settings, dropboxAppKey: key })
-    window.open(await authorizeUrl(key, beginAuth()), '_blank', 'noopener')
+    await openExternal(await authorizeUrl(key, beginAuth()))
     flashDbx('Approve in Dropbox, then paste the code below')
   }
 
@@ -247,7 +304,15 @@ export function SettingsView() {
           <ol class="help-list">
             <li>
               Go to{' '}
-              <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noreferrer">
+              <a
+                href="https://www.dropbox.com/developers/apps"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault()
+                  void openExternal('https://www.dropbox.com/developers/apps')
+                }}
+              >
                 dropbox.com/developers/apps
               </a>{' '}
               and click "Create app".
@@ -365,6 +430,66 @@ export function SettingsView() {
           />
         </label>
       </div>
+
+      {isHealthConnectSupported() && (
+        <div class="card">
+          <h3>Health Connect</h3>
+          {hcAvailability == null ? (
+            <p class="muted small">Checking Health Connect…</p>
+          ) : !hcAvailability.available ? (
+            <>
+              <p class="muted small">
+                {hcAvailability.needsUpdate
+                  ? 'Health Connect is installed but needs an update before it can share data.'
+                  : "Health Connect isn't installed. It's how Samsung Health and MyFitnessPal share steps, sleep, weight, and nutrition with other apps."}
+              </p>
+              <button class="btn ghost wide" onClick={() => openExternal(HEALTH_CONNECT_PLAY_STORE_URL)}>
+                Open Health Connect in Play Store
+              </button>
+            </>
+          ) : (
+            <>
+              <p class="muted small">
+                Reads steps, sleep, weight, body fat, resting heart rate, and logged calories/macros from Health
+                Connect — whatever Samsung Health, MyFitnessPal, or other connected apps write there. For
+                calories and macros, turn on MyFitnessPal's Health Connect link (Settings → set up your MFP account
+                in the Health Connect app, or from within MyFitnessPal's own app-permissions screen), alongside
+                steps. Re-sync anytime; duplicates merge.
+              </p>
+              <div class="btn-row">
+                <button class="btn ghost" disabled={hcBusy} onClick={handleHealthConnectConnect}>
+                  {hcPermissions?.allGranted ? 'Re-check permissions' : 'Connect Health Connect'}
+                </button>
+                <button
+                  class="btn ghost"
+                  disabled={hcBusy || !hcPermissions?.granted.length}
+                  onClick={handleHealthConnectSync}
+                >
+                  Sync now
+                </button>
+              </div>
+              {hcPermissions != null && !hcPermissions.allGranted && (
+                <>
+                  <p class="muted small">
+                    {hcPermissions.granted.length > 0
+                      ? 'Some permissions are still denied.'
+                      : "Health Connect hasn't granted any permissions yet."}
+                  </p>
+                  <button class="btn ghost wide" disabled={hcBusy} onClick={() => openHealthConnectSettings()}>
+                    Open Health Connect
+                  </button>
+                </>
+              )}
+              <p class="muted small">
+                {settings.healthConnectLastSyncAt
+                  ? `Last synced ${new Date(settings.healthConnectLastSyncAt).toLocaleString()}`
+                  : 'Not synced yet.'}
+              </p>
+            </>
+          )}
+          {hcStatus && <p class="muted small">{hcStatus}</p>}
+        </div>
+      )}
 
       <div class="card">
         <h3>Data</h3>
