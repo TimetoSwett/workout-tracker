@@ -64,7 +64,11 @@ jobs:
           java-version: 21
           cache: gradle
 
+      # Explicit packages: the action's default list includes the removed
+      # 'tools' package, which makes sdkmanager fail. compileSdk is 36.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - run: npm ci
       - run: npm run cap:sync
