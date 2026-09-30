@@ -52,9 +52,56 @@ sideloading the built APK:
    same as the PWA — your data still lives in your Dropbox, not on any app
    store account.
 
-To get an *updated* APK later, repeat steps 1–3 with the new file —
-installing over the existing app keeps your data as long as it's signed with
-the same key (see `android/KEYSTORE.md`).
+You only do the above **once**. After that the app updates itself — see below.
+
+## Updating
+
+The app checks for a newer release on its own, so you don't go looking.
+
+- **On launch** (at most once every 6 hours) a quiet one-line banner appears at
+  the top *only* if a newer release actually exists. Offline, rate-limited, and
+  no-new-version all render nothing at all — no dialogs, ever.
+- **On demand** in **Settings → About**, which also shows the version you are
+  running right now, so "am I on the fix?" is answerable without guessing.
+
+Tap **Update** and the app downloads the release APK and hands it to Android's
+package installer. Android then shows its own confirmation screen — that one is
+the OS's, not ours, and it is not skippable. The very first time, Android also
+asks you to grant **install unknown apps** to Workout Tracker; the app sends you
+straight to that settings screen, and it is a one-time grant.
+
+On the web/PWA build there is no APK to install, so the same affordance says
+**Reload for the new version** instead — the service worker has already fetched
+the new build in the background.
+
+### If the update mechanism itself breaks
+
+It cannot leave you without a working app. The updater never modifies the
+installed app — Android's package installer does, and it refuses anything that
+isn't signature-compatible. A failed, truncated, or rejected download leaves the
+currently installed app untouched and running.
+
+So the manual path above is always still there: download
+`workout-tracker-<tag>-release.apk` from the **Releases** page and install it by
+hand, exactly as in steps 1–3. Because it is signed with the same release key it
+installs over the broken version **and keeps your data** (see
+`android/KEYSTORE.md`). Nothing about the in-app updater needs to be working for
+that to succeed.
+
+### Versioning
+
+`version` in `package.json` is the single source of truth. It flows to:
+
+- the web build, as `__APP_VERSION__` (see `vite.config.ts`)
+- the APK's `versionName`, and a `versionCode` of
+  `major*10000 + minor*100 + patch` (see `android/app/build.gradle`)
+- the string shown in **Settings → About**
+
+CI reads the version back out of the built APK with `aapt2 dump badging` and
+fails the build on any drift, so the version the app displays is provably the
+version of the artifact. `versionCode` must only ever increase — Android
+silently refuses to install a build that doesn't — so the Gradle build fails if
+`minor` or `patch` would reach 100 and break that arithmetic.
 
 ## One-time setup
 
