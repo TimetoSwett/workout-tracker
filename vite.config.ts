@@ -1,12 +1,12 @@
 import preact from '@preact/preset-vite'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
-import { readFileSync } from 'node:fs'
+import { appVersion } from './scripts/app-version.mjs'
 
-// Single source of truth for the app version (TOM-2). `package.json` feeds both
-// this define and android/app/build.gradle's versionName/versionCode, so the
-// string the app shows can never drift from the artifact it is running.
-const version: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
+// Same version the APK is stamped with, so what Settings shows is what is
+// running. CI exports APP_VERSION_* once per build; otherwise this is derived
+// from the commit. See scripts/app-version.mjs.
+const version = appVersion()
 
 // GitHub Pages serves this repo from /workout-tracker/. Cloudflare serves it
 // from the root of its own domain: Cloudflare Pages builds set CF_PAGES=1 and
@@ -16,12 +16,13 @@ const version: string = JSON.parse(readFileSync(new URL('./package.json', import
 export default defineConfig(({ mode }) => ({
   base: process.env.CF_PAGES || process.env.WORKERS_CI || mode === 'capacitor' ? '/' : '/workout-tracker/',
   define: {
-    __APP_VERSION__: JSON.stringify(version),
+    __APP_VERSION__: JSON.stringify(version.versionName),
+    __APP_VERSION_CODE__: JSON.stringify(version.versionCode),
   },
   plugins: [
     preact(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Workout Tracker',
@@ -38,7 +39,6 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: 'index.html',
       },

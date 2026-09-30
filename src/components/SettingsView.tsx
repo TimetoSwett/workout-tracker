@@ -8,9 +8,8 @@ import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
 import { isNative, openExternal } from '../native'
-import { canInstallUpdates } from '../appUpdate'
 import { useUpdateController } from '../useUpdate'
-import { APP_VERSION } from '../version'
+import { APP_VERSION, APP_VERSION_CODE } from '../version'
 import {
   HEALTH_CONNECT_PLAY_STORE_URL,
   connectHealthConnect,
@@ -543,23 +542,32 @@ export function SettingsView() {
  *  string is the version of the artifact rather than a hand-maintained copy of it. */
 function AboutCard() {
   const { check, busy, progress, message, runCheck, install } = useUpdateController()
-  const updateReady = check?.kind === 'update-available'
+  const updateReady = check?.kind === 'update-available' || check?.kind === 'web-update-ready'
   const pct = progress == null ? null : Math.round(progress * 100)
 
   return (
     <div class="card">
       <h3>About</h3>
       <p class="muted small">
-        Version <strong>{APP_VERSION}</strong>
-        {isNative ? ' (Android)' : ''}
+        Version <strong>{APP_VERSION}</strong> (build {APP_VERSION_CODE})
+        {isNative ? ' · Android' : ''}
+      </p>
+      <p class="muted small">
+        Android's app info shows the same version. Quote it when reporting something broken so we know which
+        build you are on.
       </p>
       <div class="btn-row">
         <button class="btn ghost" disabled={busy} onClick={runCheck}>
           {busy && !updateReady ? 'Checking…' : 'Check for updates'}
         </button>
-        {updateReady && (
+        {check?.kind === 'update-available' && (
           <button class="btn primary" disabled={busy} onClick={install}>
-            {canInstallUpdates() ? (check.apk ? `Update to ${check.version}` : 'View release') : 'Reload for the new version'}
+            {`Update to ${check.version}`}
+          </button>
+        )}
+        {check?.kind === 'web-update-ready' && (
+          <button class="btn primary" disabled={busy} onClick={install}>
+            Reload for the new version
           </button>
         )}
       </div>

@@ -1,7 +1,6 @@
 import { webUpdateReady } from './webUpdate'
 import { APP_VERSION } from './version'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
-import { openExternal } from './native'
 
 import { checkForUpdate, checkForUpdateOnLaunch, dismissUpdate, type UpdateCheck } from './updates'
 import {
@@ -39,10 +38,9 @@ export interface UpdateController {
 function describe(check: UpdateCheck): string {
   switch (check.kind) {
     case 'update-available':
-      if (!canInstallUpdates()) return 'A downloaded web update is ready.'
-      return check.apk
-        ? `Version ${check.version} is available.`
-        : `Version ${check.version} is available, but it has no release-signed APK attached.`
+      return `Version ${check.version} is available.`
+    case 'web-update-ready':
+      return 'A downloaded web update is ready.'
     case 'current':
       return canInstallUpdates() ? `Up to date (${check.version}).` : `No downloaded web update is ready (${check.version}).`
     case 'no-releases':
@@ -60,10 +58,7 @@ function describe(check: UpdateCheck): string {
 // web readiness in the six-hour GitHub result: verify the worker each time.
 async function availableHere(onLaunch = false): Promise<UpdateCheck | null> {
   if (canInstallUpdates()) return onLaunch ? checkForUpdateOnLaunch() : checkForUpdate()
-  if (await webUpdateReady()) return {
-    kind: 'update-available', version: 'web-deployment',
-    releaseUrl: '', notes: '', apk: null,
-  }
+  if (await webUpdateReady()) return { kind: 'web-update-ready' }
   return { kind: 'current', version: APP_VERSION }
 }
 
@@ -103,9 +98,8 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
 
   const install = useCallback(() => {
     if (inFlight.current || installInFlight) return
-    if (check?.kind !== 'update-available') return
 
-    if (!canInstallUpdates()) {
+    if (check?.kind === 'web-update-ready') {
       inFlight.current = true
       installInFlight = true
       setBusy(true)
@@ -119,12 +113,8 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
       })
       return
     }
-    // Android with no release-signed asset: a debug-signed APK cannot install over the
-    // release-signed app, so send them to the release page instead of failing at the installer.
-    if (!check.apk) {
-      void openExternal(check.releaseUrl)
-      return
-    }
+
+    if (check?.kind !== 'update-available') return
 
     const apk = check.apk
     installInFlight = true
@@ -165,7 +155,7 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
 
   const dismiss = useCallback(() => {
     // Web dismissal lasts for this page; never persist a generic key that hides future deployments.
-    if (canInstallUpdates() && check?.kind === 'update-available') dismissUpdate(check.version)
+    if (check?.kind === 'update-available') dismissUpdate(check.versionCode)
     setCheck(null)
     setMessage('')
   }, [check])

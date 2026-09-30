@@ -1,4 +1,4 @@
-import { APP_VERSION, compareSemver, parseSemver } from './version'
+import { APP_VERSION, APP_VERSION_CODE, isUpgrade, parseApkName } from './version'
 
 /** Unauthenticated releases endpoint. 60 requests/hour per IP is plenty for a
  *  launch check that is throttled to once every few hours. */
@@ -6,16 +6,16 @@ const LATEST_RELEASE_URL = 'https://api.github.com/repos/TimetoSwett/workout-tra
 
 const CHECK_TIMEOUT_MS = 8000
 
-/** A release-signed APK is the only asset we can offer one-tap install for: a
- *  debug-signed APK is signed with a throwaway key and Android refuses to
- *  install it over the release-signed app (see android/KEYSTORE.md). The
- *  workflow suffixes the artifact name with the signing mode. */
-const RELEASE_SIGNED_APK = /-release\.apk$/i
-
 export interface ReleaseApk {
   url: string
   name: string
   sizeBytes: number
+  /** The APK's own versionCode, read out of its asset name. This is what the
+   *  "is it newer?" decision is made on -- see src/version.ts. */
+  versionCode: number
+  /** The APK's own versionName, which is what Settings will show after it is
+   *  installed. Not necessarily the release tag: see below. */
+  versionName: string
 }
 
 /** Every outcome of a check, including the failures. The UI renders each of
@@ -23,13 +23,18 @@ export interface ReleaseApk {
 export type UpdateCheck =
   | {
       kind: 'update-available'
+      /** The versionName the app will report once this is installed. */
       version: string
+      versionCode: number
       releaseUrl: string
       notes: string
-      /** Null when the release has no release-signed APK attached, which means
-       *  we must not offer one-tap install — see RELEASE_SIGNED_APK. */
-      apk: ReleaseApk | null
+      apk: ReleaseApk
     }
+  /** The web build only. A newer set of assets has been downloaded by the
+   *  service worker and is waiting for a reload. Deliberately distinct from
+   *  `update-available`: it is not a GitHub release, there is nothing to
+   *  install, and the only action is to reload. */
+  | { kind: 'web-update-ready' }
   | { kind: 'current'; version: string }
   /** The repo has no published releases yet. This is the state on the day this
    *  ships, so it has to be completely silent. */
@@ -56,13 +61,19 @@ interface GitHubRelease {
   assets?: unknown
 }
 
+/** The release-signed APK attached to a release, or null if it has none. A
+ *  debug-signed asset is deliberately not a candidate: it carries a throwaway
+ *  key, so Android refuses to install it over the release-signed app (see
+ *  android/KEYSTORE.md) and offering it would be a dead end. */
 function pickApk(assets: unknown): ReleaseApk | null {
   if (!Array.isArray(assets)) return null
   for (const raw of assets as GitHubAsset[]) {
     const name = typeof raw?.name === 'string' ? raw.name : null
     const url = typeof raw?.browser_download_url === 'string' ? raw.browser_download_url : null
-    if (!name || !url || !RELEASE_SIGNED_APK.test(name)) continue
-    return { url, name, sizeBytes: typeof raw.size === 'number' ? raw.size : 0 }
+    if (!name || !url) continue
+    const id = parseApkName(name)
+    if (!id) continue
+    return { url, name, sizeBytes: typeof raw.size === 'number' ? raw.size : 0, ...id }
   }
   return null
 }
@@ -70,11 +81,6 @@ function pickApk(assets: unknown): ReleaseApk | null {
 /** Queries the latest GitHub release and compares it to the running version.
  *  Never throws and never rejects: every failure mode is a returned `kind`. */
 export async function checkForUpdate(): Promise<UpdateCheck> {
-  const running = parseSemver(APP_VERSION)
-  if (!running) {
-    return { kind: 'unknown', detail: `running version '${APP_VERSION}' is not semver` }
-  }
-
   let res: Response
   try {
     res = await fetch(LATEST_RELEASE_URL, {
@@ -114,23 +120,32 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
   // cheap to honour in case this ever reads /releases instead.
   if (release.draft === true || release.prerelease === true) return { kind: 'no-releases' }
 
-  const latest = parseSemver(tag)
-  if (!latest) return { kind: 'unknown', detail: `release tag '${tag}' is not semver` }
+  const apk = pickApk(release.assets)
+  if (!apk) {
+    // A release with no release-signed APK is one we could never install, and
+    // its tag alone cannot be ordered against an untagged running build. Say
+    // so to the console and stay silent in the UI rather than offer a dead end.
+    return { kind: 'unknown', detail: `release '${tag}' has no release-signed APK asset` }
+  }
 
-  const version = `${latest.major}.${latest.minor}.${latest.patch}`
-  // Treat "installed is newer than the latest release" as current, not as a
-  // downgrade offer: that is what a board running a main-branch build sees.
-  if (compareSemver(latest, running) <= 0) return { kind: 'current', version: APP_VERSION }
+  // The APK's own versionCode, not the tag, decides this. It is the number
+  // Android enforces, and it is the only one that orders a tagged release
+  // against the untagged build the board may be running. "Not an upgrade"
+  // includes the case where the running build is NEWER than the release --
+  // exactly what a board on a main-branch artifact sees, and a downgrade
+  // Android would refuse anyway.
+  if (!isUpgrade(apk.versionCode)) return { kind: 'current', version: APP_VERSION }
 
   return {
     kind: 'update-available',
-    version,
+    version: apk.versionName,
+    versionCode: apk.versionCode,
     releaseUrl:
       typeof release.html_url === 'string'
         ? release.html_url
         : `https://github.com/TimetoSwett/workout-tracker/releases/tag/${tag}`,
     notes: typeof release.body === 'string' ? release.body : '',
-    apk: pickApk(release.assets),
+    apk,
   }
 }
 
@@ -154,12 +169,15 @@ function write(key: string, value: string): void {
 const RESULT_KEY = 'wt.update.lastResult'
 let launchCheck: Promise<UpdateCheck | null> | null = null
 
+/** Re-decides whether a result is still worth showing. A cached offer outlives
+ *  the check that produced it, and the board may have installed the update in
+ *  between -- in which case the running versionCode has caught up and the offer
+ *  is stale. Re-comparing here is what stops a just-installed build from
+ *  greeting the board with an offer to install itself. */
 function visible(result: UpdateCheck): UpdateCheck | null {
   if (result.kind === 'update-available') {
-    const latest = parseSemver(result.version)
-    const running = parseSemver(APP_VERSION)
-    if (!latest || !running || compareSemver(latest, running) <= 0) return null
-    if (read(DISMISSED_KEY) === result.version) return null
+    if (typeof result.versionCode !== 'number' || !isUpgrade(result.versionCode)) return null
+    if (read(DISMISSED_KEY) === String(result.versionCode)) return null
   }
   return result
 }
@@ -168,14 +186,14 @@ async function launch(): Promise<UpdateCheck | null> {
   try {
     const cached = JSON.parse(read(RESULT_KEY) || 'null')
     const age = Date.now() - Number(read(LAST_CHECK_KEY))
-    if (age >= 0 && age < LAUNCH_CHECK_INTERVAL_MS && cached?.running === APP_VERSION &&
+    if (age >= 0 && age < LAUNCH_CHECK_INTERVAL_MS && cached?.running === APP_VERSION_CODE &&
         ['current', 'no-releases', 'update-available'].includes(cached.result?.kind)) {
       return visible(cached.result)
     }
   } catch { /* Ignore corrupt or unavailable storage. */ }
   const result = await checkForUpdate()
   if (['current', 'no-releases', 'update-available'].includes(result.kind)) {
-    write(RESULT_KEY, JSON.stringify({ running: APP_VERSION, result }))
+    write(RESULT_KEY, JSON.stringify({ running: APP_VERSION_CODE, result }))
     write(LAST_CHECK_KEY, String(Date.now()))
   }
   return visible(result)
@@ -187,6 +205,9 @@ export function checkForUpdateOnLaunch(): Promise<UpdateCheck | null> {
   return launchCheck
 }
 
-export function dismissUpdate(version: string): void {
-  write(DISMISSED_KEY, version)
+/** Dismissal is keyed on the versionCode, not the name: it must suppress
+ *  exactly the one build the board said no to, and let the next release
+ *  through. */
+export function dismissUpdate(versionCode: number): void {
+  write(DISMISSED_KEY, String(versionCode))
 }

@@ -31,7 +31,7 @@ sideloading the built APK:
 
 1. Download the APK from GitHub:
    - **Tagged versions:** the repo's **Releases** page. Each `v*` tag has
-     `workout-tracker-<tag>-release.apk` attached.
+     `workout-tracker-<version>-<versionCode>-release.apk` attached.
    - **Latest `main` build:** **Actions → Build Android APK** → open the
      newest green run → **Artifacts** → download `workout-tracker-<sha>-…`.
      It arrives as a `.zip`, so unzip it to get the `.apk`.
@@ -84,7 +84,7 @@ isn't signature-compatible. A failed, truncated, or rejected download leaves the
 currently installed app untouched and running.
 
 So the manual path above is always still there: download
-`workout-tracker-<tag>-release.apk` from the **Releases** page and install it by
+`workout-tracker-<version>-<versionCode>-release.apk` from the **Releases** page and install it by
 hand, exactly as in steps 1–3. Because it is signed with the same release key it
 installs over the broken version **and keeps your data**, provided the recovery
 build has a higher `versionCode` (see
@@ -93,18 +93,30 @@ that to succeed.
 
 ### Versioning
 
-`version` in `package.json` is the single source of truth. It flows to:
+`scripts/app-version.mjs` is the single source of truth. It derives both values
+from the commit being built, so nothing is hand-maintained and nothing can drift:
 
-- the web build, as `__APP_VERSION__` (see `vite.config.ts`)
-- the APK's `versionName`, and a `versionCode` of
-  `major*10000 + minor*100 + patch` (see `android/app/build.gradle`)
-- the string shown in **Settings → About**
+- **`versionCode`** — seconds between 2020-01-01 and the commit's committer
+  date. Strictly increasing as commits are made, and identical if you rebuild
+  the same commit.
+- **`versionName`** — a `v*` tag without its leading `v` (`1.2.0`) on a tag
+  build, otherwise `<commit date>.<short sha>` (`2026.09.30.a1b2c3d`), so an
+  untagged build on the phone names its own commit.
 
-CI reads the version back out of the built APK with `aapt2 dump badging` and
-fails the build on any drift, so the version the app displays is provably the
-version of the artifact. `versionCode` must only ever increase — Android
-silently refuses to install a build that doesn't — so the Gradle build fails if
-`minor` or `patch` would reach 100 and break that arithmetic.
+The same pair reaches the web bundle (`__APP_VERSION__` / `__APP_VERSION_CODE__`,
+see `vite.config.ts`), the APK's `versionName`/`versionCode`, and the string in
+**Settings → About**. CI reads them back out of the built APK with
+`aapt2 dump badging`, and greps the APK's bundled web assets for the same
+`versionName`, failing the build on any drift — so what Settings shows is
+provably the artifact that is running. `versionCode` must only ever increase;
+Android silently refuses to install a build that doesn't.
+
+That is also why the in-app update check compares `versionCode` and not the
+name: `1.2.0` and `2026.09.30.a1b2c3d` do not sort against each other, and the
+board runs both. The workflow therefore puts the `versionCode` in the APK's file
+name (`workout-tracker-<versionName>-<versionCode>-release.apk`) so the app can
+read it off the release asset without a second API request. Change that name
+format and you must change `parseApkName` in `src/version.ts` in the same commit.
 
 ## One-time setup
 
