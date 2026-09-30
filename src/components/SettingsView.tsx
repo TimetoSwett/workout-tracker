@@ -163,7 +163,10 @@ export function SettingsView() {
     }
     const next = { ...ai, apiKey: key }
     try {
-      const reply = await aiChat(next, 'Reply with exactly: OK', [{ role: 'user', content: 'ping' }])
+      // A one-token liveness probe, so it gets a much tighter cap than a real generation.
+      const reply = await aiChat(next, 'Reply with exactly: OK', [{ role: 'user', content: 'ping' }], {
+        timeoutMs: 20_000,
+      })
       setSettings({ ...settings, ai: next })
       setAi({ ...ai, apiKey: '' })
       flash(`AI works ✓ (${reply.slice(0, 40)})`)
