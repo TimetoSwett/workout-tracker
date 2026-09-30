@@ -8,6 +8,7 @@ import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
 import { openExternal } from '../native'
+import { APP_VERSION, APP_VERSION_CODE } from '../version'
 import {
   HEALTH_CONNECT_PLAY_STORE_URL,
   connectHealthConnect,
@@ -525,6 +526,17 @@ export function SettingsView() {
         >
           Reset local data
         </button>
+      </div>
+
+      <div class="card">
+        <h3>About</h3>
+        <p class="muted small">
+          Version <b>{APP_VERSION}</b> (build {APP_VERSION_CODE})
+        </p>
+        <p class="muted small">
+          Android's app info shows the same version. Quote it when reporting something broken so we know which
+          build you are on.
+        </p>
       </div>
 
       {status && <div class="toast visible">{status}</div>}

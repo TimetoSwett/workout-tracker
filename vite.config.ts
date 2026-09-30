@@ -1,6 +1,12 @@
 import preact from '@preact/preset-vite'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { appVersion } from './scripts/app-version.mjs'
+
+// Same version the APK is stamped with, so what Settings shows is what is
+// running. CI exports APP_VERSION_* once per build; otherwise this is derived
+// from the commit. See scripts/app-version.mjs.
+const version = appVersion()
 
 // GitHub Pages serves this repo from /workout-tracker/. Cloudflare serves it
 // from the root of its own domain: Cloudflare Pages builds set CF_PAGES=1 and
@@ -9,6 +15,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 // base '/'.
 export default defineConfig(({ mode }) => ({
   base: process.env.CF_PAGES || process.env.WORKERS_CI || mode === 'capacitor' ? '/' : '/workout-tracker/',
+  define: {
+    __APP_VERSION__: JSON.stringify(version.versionName),
+    __APP_VERSION_CODE__: JSON.stringify(version.versionCode),
+  },
   plugins: [
     preact(),
     VitePWA({
