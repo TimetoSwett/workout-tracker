@@ -7,7 +7,10 @@ import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, testConnectio
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
-import { openExternal } from '../native'
+import { isNative, openExternal } from '../native'
+import { canInstallUpdates } from '../appUpdate'
+import { useUpdateController } from '../useUpdate'
+import { APP_VERSION } from '../version'
 import {
   HEALTH_CONNECT_PLAY_STORE_URL,
   connectHealthConnect,
@@ -527,7 +530,45 @@ export function SettingsView() {
         </button>
       </div>
 
+      <AboutCard />
+
       {status && <div class="toast visible">{status}</div>}
+    </div>
+  )
+}
+
+/** Answers "am I on the fix?" without guessing, and lets the board force an update check instead
+ *  of waiting for the throttled launch one (TOM-2). APP_VERSION comes from package.json via a
+ *  Vite define, and android/app/build.gradle derives versionName from the same value, so this
+ *  string is the version of the artifact rather than a hand-maintained copy of it. */
+function AboutCard() {
+  const { check, busy, progress, message, runCheck, install } = useUpdateController()
+  const updateReady = check?.kind === 'update-available'
+  const pct = progress == null ? null : Math.round(progress * 100)
+
+  return (
+    <div class="card">
+      <h3>About</h3>
+      <p class="muted small">
+        Version <strong>{APP_VERSION}</strong>
+        {isNative ? ' (Android)' : ''}
+      </p>
+      <div class="btn-row">
+        <button class="btn ghost" disabled={busy} onClick={runCheck}>
+          {busy && !updateReady ? 'Checking…' : 'Check for updates'}
+        </button>
+        {updateReady && (
+          <button class="btn primary" disabled={busy} onClick={install}>
+            {canInstallUpdates() ? `Update to ${check.version}` : 'Reload for the new version'}
+          </button>
+        )}
+      </div>
+      {pct != null && (
+        <div class="update-progress">
+          <div style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {message && <p class="muted small">{message}</p>}
     </div>
   )
 }
