@@ -380,29 +380,31 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
       <div class="card analyze-bar">
         <div class="timeframe-row">
           <label class="muted">Review</label>
-          {WINDOWS.map((o) => (
-            <button
-              key={String(o.key)}
-              class={`btn small ${(active ? (active.scope ?? active.weeks) : win) === o.key ? 'primary' : 'ghost'}`}
-              onClick={() => {
-                setWin(o.key)
-                if (active) {
-                  upsertThread({
-                    ...active,
-                    weeks: typeof o.key === 'number' ? o.key : active.weeks,
-                    scope: typeof o.key === 'string' ? o.key : undefined,
-                  })
-                }
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
+          <div class="timeframe-opts">
+            {WINDOWS.map((o) => (
+              <button
+                key={String(o.key)}
+                class={`btn small ${(active ? (active.scope ?? active.weeks) : win) === o.key ? 'primary' : 'ghost'}`}
+                onClick={() => {
+                  setWin(o.key)
+                  if (active) {
+                    upsertThread({
+                      ...active,
+                      weeks: typeof o.key === 'number' ? o.key : active.weeks,
+                      scope: typeof o.key === 'string' ? o.key : undefined,
+                    })
+                  }
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div class="btn-row">
           <button class="btn primary" onClick={analyze} disabled={busy}>
             Analyze
           </button>
-        </div>
-        <div class="btn-row" style={{ marginTop: 8 }}>
           <button class="btn ghost" onClick={planMeso} disabled={busy}>
             📅 Plan next meso
           </button>

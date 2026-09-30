@@ -605,16 +605,29 @@ button {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .pr-row:last-child {
   border-bottom: none;
 }
 
+/* The label column claims a readable width before anything shrinks. A Best lifts value
+   like "225lbs (185×8, 2026-09-14)" is nowrap and eats most of a 390px card, and without
+   this the name was squeezed into a one-word-per-line column beside it. Now the value
+   drops to its own line instead, and the name stays on one. */
+.pr-row > :first-child {
+  flex: 1 1 12em;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
 .pr-val {
   color: var(--accent);
   font-weight: 600;
   white-space: nowrap;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .workout-card {
@@ -693,8 +706,19 @@ button {
   flex-wrap: wrap;
 }
 
-.timeframe-row .btn.primary {
-  margin-left: auto;
+/* The window buttons wrap as one group. Previously they shared a row with Analyze, which
+   was pushed right with `margin-left: auto`, so at 390px "All" was orphaned onto line 2
+   at the far left with Analyze floating right beside it. */
+.timeframe-opts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+/* The card is already a column flex with a gap; don't stack `.btn-row`'s own margin on it. */
+.analyze-bar .btn-row {
+  margin: 0;
 }
 
 .chat-card {
