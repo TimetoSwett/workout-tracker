@@ -6,10 +6,7 @@ import { dropboxConfigured } from '../dropbox'
 import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { RestTimer } from './RestTimer'
-
-function nowDate(): string {
-  return new Date().toISOString().slice(0, 10)
-}
+import { localDate, localDateDaysAgo } from '../dates'
 
 const PUMP_VALUES = [0, 1, 2]
 const SORENESS_VALUES = [-1, 0, 1, 2, 3]
@@ -60,7 +57,7 @@ export function LogView() {
   function startWorkout(name?: string, exercises?: LoggedExercise[]) {
     setActive({
       id: uid(),
-      date: nowDate(),
+      date: localDate(),
       startedAt: Date.now(),
       name,
       exercises: exercises ?? [],
@@ -159,7 +156,7 @@ export function LogView() {
     const exercises = generateWorkoutExercises(activeMeso, pos, workouts)
     setActive({
       id: uid(),
-      date: nowDate(),
+      date: localDate(),
       startedAt: Date.now(),
       name: activeMeso.days[pos.dayIndex]?.label ?? activeMeso.name,
       exercises,
@@ -298,7 +295,7 @@ export function LogView() {
               <div class="stat-label">workouts logged</div>
             </div>
             <div>
-              <div class="stat-num">{workouts.filter((w) => w.date >= new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10)).length}</div>
+              <div class="stat-num">{workouts.filter((w) => w.date >= localDateDaysAgo(7)).length}</div>
               <div class="stat-label">this week</div>
             </div>
           </div>
