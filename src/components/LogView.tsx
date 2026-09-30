@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout } from '../types'
-import { setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
+import { getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
@@ -39,7 +39,7 @@ export function LogView() {
   useEffect(() => {
     if (restLeft === 0 && active?.restEndsAt) {
       if ('vibrate' in navigator) navigator.vibrate?.(400)
-      setActive({ ...active, restEndsAt: undefined })
+      patch((a) => ({ ...a, restEndsAt: undefined }))
     }
   }, [restLeft])
 
@@ -49,9 +49,13 @@ export function LogView() {
     return Math.floor((Date.now() - active.startedAt) / 60000)
   }, [active, tick])
 
+  /** Reads the live store rather than the render-time `active`. Two patches in one
+   *  handler both build from the same snapshot otherwise, and the second silently
+   *  discards the first — `active` only refreshes on the next render. */
   function patch(fn: (a: ActiveWorkout) => ActiveWorkout) {
-    if (!active) return
-    setActive(fn(active))
+    const cur = getState().active
+    if (!cur) return
+    setActive(fn(cur))
   }
 
   function startWorkout(name?: string, exercises?: LoggedExercise[]) {
@@ -76,7 +80,10 @@ export function LogView() {
       patch((a) => ({ ...a, exercises: [...a.exercises, emptyExercise(name)] }))
     } else if (typeof picker === 'number') {
       const idx = picker
-      patch((a) => ({ ...a, exercises: a.exercises.map((e, i) => (i !== idx ? e : emptyExercise(name))) }))
+      // A swap changes which lift occupies this slot, nothing else: anything already
+      // logged into it, its note, and its prescription all stay. Replacing the whole
+      // exercise silently threw away completed sets with no undo.
+      patch((a) => ({ ...a, exercises: a.exercises.map((e, i) => (i !== idx ? e : { ...e, name })) }))
     }
     setPicker(null)
   }
@@ -105,20 +112,28 @@ export function LogView() {
     }))
   }
 
+  /** Marking done and starting the rest timer are one write: as two they raced, and
+   *  the timer patch overwrote the `done` flag with the pre-tap value. */
   function completeSet(exIdx: number, setIdx: number) {
-    const set = active?.exercises[exIdx]?.sets[setIdx]
+    const set = getState().active?.exercises[exIdx]?.sets[setIdx]
     if (!set) return
     const done = !set.done
-    patchSet(exIdx, setIdx, { done })
-    if (done) {
-      patch((a) => ({ ...a, restEndsAt: Date.now() + settings.restSeconds * 1000, restTotal: settings.restSeconds }))
-    }
+    patch((a) => ({
+      ...a,
+      exercises: a.exercises.map((ex, i) =>
+        i !== exIdx
+          ? ex
+          : { ...ex, sets: ex.sets.map((s, j) => (j !== setIdx ? s : { ...s, done })) },
+      ),
+      ...(done ? { restEndsAt: Date.now() + settings.restSeconds * 1000, restTotal: settings.restSeconds } : null),
+    }))
   }
 
   function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[]) {
     const finished: Workout = { ...base, endedAt: Date.now(), updatedAt: Date.now(), muscleFeedback }
     upsertWorkout(finished)
     setActive(null)
+    setConfirmDiscard(false)
     setPendingFinish(null)
     setFeedback(null)
     setToast('Workout saved ✓')
@@ -136,7 +151,9 @@ export function LogView() {
     }
     if (trimmed.exercises.length === 0) {
       setActive(null)
+      setConfirmDiscard(false)
       setToast('Nothing logged — workout discarded')
+      setTimeout(() => setToast(''), 2500)
       return
     }
     if (trimmed.mesoId) {
@@ -418,7 +435,13 @@ export function LogView() {
         {confirmDiscard ? (
           <>
             <span class="confirm-text">Discard workout?</span>
-            <button class="btn danger" onClick={() => setActive(null)}>
+            <button
+              class="btn danger"
+              onClick={() => {
+                setActive(null)
+                setConfirmDiscard(false)
+              }}
+            >
               Yes, discard
             </button>
             <button class="btn ghost" onClick={() => setConfirmDiscard(false)}>
