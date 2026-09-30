@@ -11,13 +11,13 @@ export function UpdateBanner() {
   if (check?.kind !== 'update-available') return null
 
   const pct = progress == null ? null : Math.round(progress * 100)
-  const label = canInstallUpdates() ? 'Update' : 'Reload'
+  const label = canInstallUpdates() ? (check.apk ? 'Update' : 'View release') : 'Reload'
 
   return (
-    <div class="update-banner" role="status">
-      <div class="update-banner-text">
+    <div class="update-banner">
+      <div class="update-banner-text" role="status">
         <strong>Version {check.version} is available.</strong>
-        {busy && <span class="muted small"> {pct == null ? message : `Downloading… ${pct}%`}</span>}
+        {message && <span class="muted small"> {pct == null ? message : `Downloading… ${pct}%`}</span>}
       </div>
       <button class="btn primary small" disabled={busy} onClick={install}>
         {label}

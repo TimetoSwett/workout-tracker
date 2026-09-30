@@ -5,6 +5,7 @@ import { checkForUpdate, checkForUpdateOnLaunch, dismissUpdate, type UpdateCheck
 import {
   canInstallUpdates,
   downloadAndInstall,
+  getNativeAppInfo,
   onDownloadProgress,
   openInstallPermissionSettings,
   reloadForUpdate,
@@ -12,6 +13,8 @@ import {
 
 /** Thrown across the Capacitor bridge by AppUpdatePlugin when the board has not yet granted
  *  "install unknown apps". Not an error to show — it is a signposted detour. */
+let installInFlight = false
+
 const NEEDS_INSTALL_PERMISSION = 'NEEDS_INSTALL_PERMISSION'
 
 export interface UpdateController {
@@ -62,8 +65,7 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
 
   useEffect(() => {
     if (!options?.checkOnMount) return
-    // The launch check is throttled and returns null when it declines to run or when this
-    // version was already dismissed, so the banner stays hidden without extra bookkeeping here.
+    // The request is throttled; an undismissed cached offer remains visible.
     void checkForUpdateOnLaunch().then((result) => {
       if (result) {
         setCheck(result)
@@ -86,7 +88,7 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
   }, [])
 
   const install = useCallback(() => {
-    if (inFlight.current) return
+    if (inFlight.current || installInFlight) return
     if (check?.kind !== 'update-available') return
 
     // Web/PWA: the service worker is registerType 'autoUpdate', so the new build is already
@@ -103,39 +105,40 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
     }
 
     const apk = check.apk
+    installInFlight = true
     inFlight.current = true
     setBusy(true)
-    setProgress(0)
-    setMessage('Downloading…')
-
-    const listener = onDownloadProgress(({ bytes, totalBytes }) => {
-      setProgress(totalBytes > 0 ? Math.min(1, bytes / totalBytes) : null)
-    })
-    const done = () => {
-      setBusy(false)
-      setProgress(null)
-      inFlight.current = false
-      void listener.then((l) => l.remove())
-    }
-
-    void downloadAndInstall(apk, check.version).then(
-      () => {
-        // The OS installer is now on screen and owns the rest. If the board confirms, this
-        // process is replaced; if they cancel, the app is still here and still working.
-        setMessage('Opening the installer…')
-        done()
-      },
-      (err: unknown) => {
-        const text = err instanceof Error ? err.message : String(err)
-        if (text.includes(NEEDS_INSTALL_PERMISSION)) {
-          setMessage('Android needs permission to install apps. Opening that setting — allow it, then tap Update again.')
-          void openInstallPermissionSettings()
-        } else {
-          setMessage(`Update failed: ${text}. The release page still has the APK.`)
+    setMessage('Checking install permission…')
+    void (async () => {
+      let listener: Awaited<ReturnType<typeof onDownloadProgress>> | undefined
+      try {
+        const info = await getNativeAppInfo()
+        if (!info.canRequestInstalls) {
+          setMessage('Allow installs from this app in Android settings, then return and tap Update again.')
+          await openInstallPermissionSettings()
+          return
         }
-        done()
-      },
-    )
+        listener = await onDownloadProgress(({ bytes, totalBytes }) => {
+          setProgress(totalBytes > 0 ? Math.min(1, bytes / totalBytes) : null)
+        })
+        setProgress(0)
+        setMessage('Downloading…')
+        await downloadAndInstall(apk, check.version)
+        setMessage('Opening the installer…')
+      } catch (err: unknown) {
+        const text = err instanceof Error ? err.message : String(err)
+        setMessage(text.includes(NEEDS_INSTALL_PERMISSION)
+          ? 'Android install permission changed. Tap Update to open settings and allow installs.'
+          : 'Could not install the update. Try again, or download the APK from the release page.')
+      } finally {
+        try { await listener?.remove() } catch { /* Cleanup must always release the guard. */ }
+        setBusy(false)
+        setProgress(null)
+        inFlight.current = false
+        installInFlight = false
+      }
+    })()
+
   }, [check])
 
   const dismiss = useCallback(() => {

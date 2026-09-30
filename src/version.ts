@@ -28,13 +28,3 @@ export function parseSemver(raw: string): Semver | null {
 export function compareSemver(a: Semver, b: Semver): number {
   return a.major - b.major || a.minor - b.minor || a.patch - b.patch
 }
-
-/** Mirrors the `versionCode` arithmetic in `android/app/build.gradle`.
- *
- *  `major * 10000 + minor * 100 + patch` is strictly increasing in semver order
- *  as long as `minor` and `patch` stay below 100 — the Gradle build fails the
- *  build if they don't, so the code can never regress and silently stop
- *  Android from accepting updates. */
-export function versionCodeFor(v: Semver): number {
-  return v.major * 10000 + v.minor * 100 + v.patch
-}

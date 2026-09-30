@@ -68,7 +68,9 @@ Tap **Update** and the app downloads the release APK and hands it to Android's
 package installer. Android then shows its own confirmation screen — that one is
 the OS's, not ours, and it is not skippable. The very first time, Android also
 asks you to grant **install unknown apps** to Workout Tracker; the app sends you
-straight to that settings screen, and it is a one-time grant.
+straight to that settings screen before downloading. Allow installs, return to the
+app, and tap **Update** again. After this one-time grant, each update takes one
+app tap plus Android's install confirmation.
 
 On the web/PWA build there is no APK to install, so the same affordance says
 **Reload for the new version** instead — the service worker has already fetched
@@ -84,7 +86,8 @@ currently installed app untouched and running.
 So the manual path above is always still there: download
 `workout-tracker-<tag>-release.apk` from the **Releases** page and install it by
 hand, exactly as in steps 1–3. Because it is signed with the same release key it
-installs over the broken version **and keeps your data** (see
+installs over the broken version **and keeps your data**, provided the recovery
+build has a higher `versionCode` (see
 `android/KEYSTORE.md`). Nothing about the in-app updater needs to be working for
 that to succeed.
 

@@ -182,6 +182,7 @@ jobs:
           "$apksigner" verify --verbose --print-certs "$src"
 
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then label="$GITHUB_REF_NAME"; else label="${HEAD_SHA::7}"; fi
+          # Keep the -release.apk suffix in sync with RELEASE_SIGNED_APK in src/updates.ts.
           name="workout-tracker-${label}-${{ steps.signing.outputs.mode }}"
           mkdir -p "$RUNNER_TEMP/apk"
           cp "$src" "$RUNNER_TEMP/apk/$name.apk"

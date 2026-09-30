@@ -12,6 +12,9 @@ import com.getcapacitor.PluginMethod
 import com.getcapacitor.annotation.CapacitorPlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -41,7 +44,15 @@ import java.net.URL
 @CapacitorPlugin(name = "AppUpdate")
 class AppUpdatePlugin : Plugin() {
 
+    private val updateScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    override fun handleOnDestroy() {
+        updateScope.cancel()
+        super.handleOnDestroy()
+    }
+
     private companion object {
+        val downloadInFlight = AtomicBoolean(false)
         const val DOWNLOAD_DIR = "updates"
         const val APK_MIME = "application/vnd.android.package-archive"
         /** A zip local-file-header signature: "PK". Every APK is a zip. */
@@ -125,16 +136,21 @@ class AppUpdatePlugin : Plugin() {
             call.reject("NEEDS_INSTALL_PERMISSION")
             return
         }
-        val versionName = call.getString("versionName") ?: "update"
 
-        CoroutineScope(Dispatchers.Main).launch {
+        if (!downloadInFlight.compareAndSet(false, true)) {
+            call.reject("An update download is already running.")
+            return
+        }
+        updateScope.launch {
             try {
-                val apk = withContext(Dispatchers.IO) { download(url, versionName) }
+                val apk = withContext(Dispatchers.IO) { download(url) }
                 launchInstaller(apk)
                 call.resolve()
             } catch (e: Exception) {
-                call.reject(e.message ?: "The update download failed.", e)
+                call.reject("The update download failed. Try again or use the release page.", e)
             }
+        }.invokeOnCompletion {
+            downloadInFlight.set(false)
         }
     }
 
@@ -145,26 +161,19 @@ class AppUpdatePlugin : Plugin() {
         return host == "github.com" ||
             host == "api.github.com" ||
             host == "objects.githubusercontent.com" ||
-            host.endsWith(".githubusercontent.com")
+            host == "release-assets.githubusercontent.com"
     }
 
     /** Downloads to the app cache. cacheDir is already covered by the FileProvider's
      *  `cache-path` (res/xml/file_paths.xml) and the OS reclaims it under storage pressure, so a
      *  stale APK can never accumulate into a real problem. */
-    private fun download(url: String, versionName: String): File {
+    private fun download(url: String): File {
         val dir = File(context.cacheDir, DOWNLOAD_DIR)
-        // Drop any previous attempt so a half-written file from a killed download is never the
-        // thing we hand the installer.
-        dir.deleteRecursively()
-        dir.mkdirs()
-        val target = File(dir, "workout-tracker-$versionName.apk")
-
-        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = CONNECT_TIMEOUT_MS
-            readTimeout = READ_TIMEOUT_MS
-            instanceFollowRedirects = true
-            setRequestProperty("Accept", "application/octet-stream")
-        }
+        if (!dir.exists() && !dir.mkdirs()) throw IllegalStateException("Cannot create update cache.")
+        // Unique files avoid replacing an APK while an earlier installer still has it open.
+        // Android reclaims cache files under storage pressure.
+        val target = File.createTempFile("workout-tracker-", ".apk", dir)
+        val conn = openDownload(url)
         try {
             if (conn.responseCode !in 200..299) {
                 throw IllegalStateException("GitHub returned HTTP ${conn.responseCode} for the APK.")
@@ -198,9 +207,37 @@ class AppUpdatePlugin : Plugin() {
                 throw IllegalStateException("The downloaded file is not an APK.")
             }
             return target
+        } catch (e: Exception) {
+            target.delete()
+            throw e
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** Validate every hop before making the request; never follow redirects implicitly. */
+    private fun openDownload(initialUrl: String): HttpURLConnection {
+        var next = URL(initialUrl)
+        repeat(6) {
+            if (!isTrustedHost(next.toString())) throw IllegalStateException("Unexpected download host.")
+            val conn = (next.openConnection() as HttpURLConnection).apply {
+                connectTimeout = CONNECT_TIMEOUT_MS
+                readTimeout = READ_TIMEOUT_MS
+                instanceFollowRedirects = false
+                setRequestProperty("Accept", "application/octet-stream")
+            }
+            try {
+                if (conn.responseCode !in listOf(301, 302, 303, 307, 308)) return conn
+                val location = conn.getHeaderField("Location")
+                    ?: throw IllegalStateException("Redirect without a location.")
+                next = URL(next, location)
+            } catch (e: Exception) {
+                conn.disconnect()
+                throw e
+            }
+            conn.disconnect()
+        }
+        throw IllegalStateException("Too many download redirects.")
     }
 
     private fun looksLikeApk(file: File): Boolean {

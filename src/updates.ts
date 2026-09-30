@@ -105,6 +105,8 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
     return { kind: 'unknown', detail: 'response body was not JSON' }
   }
 
+  if (!release || typeof release !== 'object') return { kind: 'unknown', detail: 'invalid release body' }
+
   const tag = typeof release.tag_name === 'string' ? release.tag_name : null
   if (!tag) return { kind: 'unknown', detail: 'release had no tag_name' }
 
@@ -143,28 +145,48 @@ const LAST_CHECK_KEY = 'wt.update.lastCheckAt'
 const DISMISSED_KEY = 'wt.update.dismissedVersion'
 const LAUNCH_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
-function readNumber(key: string): number {
-  const n = Number(localStorage.getItem(key))
-  return Number.isFinite(n) ? n : 0
+function read(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
 }
+function write(key: string, value: string): void {
+  try { localStorage.setItem(key, value) } catch { /* Storage is optional. */ }
+}
+const RESULT_KEY = 'wt.update.lastResult'
+let launchCheck: Promise<UpdateCheck | null> | null = null
 
-/** The launch check: skipped entirely if one ran recently, so opening the app
- *  ten times in an afternoon makes one request, not ten. */
-export async function checkForUpdateOnLaunch(): Promise<UpdateCheck | null> {
-  if (Date.now() - readNumber(LAST_CHECK_KEY) < LAUNCH_CHECK_INTERVAL_MS) return null
-  const result = await checkForUpdate()
-  // Only a conclusive answer counts as "checked" — being offline at launch
-  // must not suppress the next six hours of checks.
-  if (result.kind !== 'offline' && result.kind !== 'rate-limited') {
-    localStorage.setItem(LAST_CHECK_KEY, String(Date.now()))
-  }
-  if (result.kind === 'update-available' && localStorage.getItem(DISMISSED_KEY) === result.version) {
-    return null
+function visible(result: UpdateCheck): UpdateCheck | null {
+  if (result.kind === 'update-available') {
+    const latest = parseSemver(result.version)
+    const running = parseSemver(APP_VERSION)
+    if (!latest || !running || compareSemver(latest, running) <= 0) return null
+    if (read(DISMISSED_KEY) === result.version) return null
   }
   return result
 }
 
-/** Hides the banner for one specific version. A later version shows again. */
+async function launch(): Promise<UpdateCheck | null> {
+  try {
+    const cached = JSON.parse(read(RESULT_KEY) || 'null')
+    const age = Date.now() - Number(read(LAST_CHECK_KEY))
+    if (age >= 0 && age < LAUNCH_CHECK_INTERVAL_MS && cached?.running === APP_VERSION &&
+        ['current', 'no-releases', 'update-available'].includes(cached.result?.kind)) {
+      return visible(cached.result)
+    }
+  } catch { /* Ignore corrupt or unavailable storage. */ }
+  const result = await checkForUpdate()
+  if (['current', 'no-releases', 'update-available'].includes(result.kind)) {
+    write(RESULT_KEY, JSON.stringify({ running: APP_VERSION, result }))
+    write(LAST_CHECK_KEY, String(Date.now()))
+  }
+  return visible(result)
+}
+
+/** Throttle requests, retaining the last conclusive answer until dismissed. */
+export function checkForUpdateOnLaunch(): Promise<UpdateCheck | null> {
+  if (!launchCheck) launchCheck = launch().finally(() => { launchCheck = null })
+  return launchCheck
+}
+
 export function dismissUpdate(version: string): void {
-  localStorage.setItem(DISMISSED_KEY, version)
+  write(DISMISSED_KEY, version)
 }

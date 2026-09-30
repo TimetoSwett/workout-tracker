@@ -559,7 +559,7 @@ function AboutCard() {
         </button>
         {updateReady && (
           <button class="btn primary" disabled={busy} onClick={install}>
-            {canInstallUpdates() ? `Update to ${check.version}` : 'Reload for the new version'}
+            {canInstallUpdates() ? (check.apk ? `Update to ${check.version}` : 'View release') : 'Reload for the new version'}
           </button>
         )}
       </div>
