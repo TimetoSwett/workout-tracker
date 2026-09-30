@@ -416,17 +416,27 @@ export function SettingsView() {
               const input = e.target as HTMLInputElement
               const files = Array.from(input.files ?? [])
               if (!files.length) return
-              const { importSamsungHealth } = await import('../healthImport')
-              const res = await importSamsungHealth(files, settings.units)
-              input.value = ''
-              flash(
-                `${res.days.added} new days, ${res.days.updated} updated (${res.files.length} files recognized)` +
-                  (res.bodyweight ? ` — bodyweight now ${res.bodyweight}${settings.units}` : '') +
-                  (res.errors.length ? ` — issues: ${res.errors[0]}` : ''),
-              )
-              if (settings.dropboxToken) {
-                const { syncMetrics } = await import('../metricsSync')
-                void syncMetrics()
+              try {
+                // healthImport is a real split chunk. A tab claimed by a newer
+                // service worker can no longer fetch its own build's hashes,
+                // so the import has to fail out loud rather than vanish.
+                const { importSamsungHealth } = await import('../healthImport')
+                const res = await importSamsungHealth(files, settings.units)
+                flash(
+                  `${res.days.added} new days, ${res.days.updated} updated (${res.files.length} files recognized)` +
+                    (res.bodyweight ? ` — bodyweight now ${res.bodyweight}${settings.units}` : '') +
+                    (res.errors.length ? ` — issues: ${res.errors[0]}` : ''),
+                )
+                if (settings.dropboxToken) {
+                  const { syncMetrics } = await import('../metricsSync')
+                  void syncMetrics()
+                }
+              } catch (err) {
+                flash(`Import failed: ${err instanceof Error ? err.message : String(err)}`)
+              } finally {
+                // Always: a dirty picker will not re-fire onChange when the
+                // user reselects the same files after a failure.
+                input.value = ''
               }
             }}
           />

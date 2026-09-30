@@ -2,6 +2,34 @@
  * origin. A GitHub release alone is never evidence that web assets are ready. */
 let readyWorker: ServiceWorker | null = null
 
+/** Every reload in this module goes through here. A page can only navigate away
+ * once, and two code paths race to send it: the `controllerchange` watcher below
+ * and `activateWebUpdate()` in the tab that pressed the button. Whichever wins,
+ * the other must not fire a second navigation on top of an in-flight one. */
+let reloading = false
+function reloadOnce(): void {
+  if (reloading) return
+  reloading = true
+  location.reload()
+}
+
+/** `clientsClaim` means one tab activating a deployment takes over *every* open
+ * tab, and the new worker prunes precache entries the old build still needs. A
+ * claimed-but-unreloaded tab looks healthy until it asks for a lazy chunk whose
+ * hash no longer exists on the origin, and then that import just rejects.
+ *
+ * Reload on controller change so no tab outlives the assets it was built from.
+ * Call once at startup, before anything can activate a worker. */
+export function reloadOnControllerChange(): void {
+  if (!('serviceWorker' in navigator)) return
+  // No controller at load means the first worker is still installing. Claiming
+  // this page is not a version skew — the page fetched these assets from the
+  // network, which is exactly what that worker just precached. Reloading would
+  // be a pointless flash on the user's very first visit.
+  if (!navigator.serviceWorker.controller) return
+  navigator.serviceWorker.addEventListener('controllerchange', reloadOnce)
+}
+
 export async function webUpdateReady(): Promise<boolean> {
   if (!('serviceWorker' in navigator)) return false
   try {
@@ -54,5 +82,5 @@ export async function activateWebUpdate(): Promise<void> {
     navigator.serviceWorker.addEventListener('controllerchange', changed)
     worker.postMessage({ type: 'SKIP_WAITING' })
   })
-  location.reload()
+  reloadOnce()
 }
