@@ -33,8 +33,7 @@ interface AppUpdatePluginApi {
 const AppUpdate = registerPlugin<AppUpdatePluginApi>('AppUpdate')
 
 /** One-tap install only exists on the Android build. Everywhere else the web
- *  app updates itself by reloading (the service worker is registerType
- *  'autoUpdate'), so the UI offers a reload instead of a broken install button. */
+ *  app offers a reload only after its service worker caches a new deployment. */
 export function canInstallUpdates(): boolean {
   return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android'
 }
@@ -58,8 +57,4 @@ export function onDownloadProgress(cb: (p: DownloadProgress) => void) {
   return AppUpdate.addListener('downloadProgress', cb)
 }
 
-/** The web fallback: the service worker has already fetched the new build in
- *  the background, so a reload is genuinely all it takes. */
-export function reloadForUpdate(): void {
-  location.reload()
-}
+export { activateWebUpdate as reloadForUpdate } from './webUpdate'

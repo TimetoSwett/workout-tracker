@@ -1,3 +1,5 @@
+import { webUpdateReady } from './webUpdate'
+import { APP_VERSION } from './version'
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 import { openExternal } from './native'
 
@@ -37,11 +39,12 @@ export interface UpdateController {
 function describe(check: UpdateCheck): string {
   switch (check.kind) {
     case 'update-available':
+      if (!canInstallUpdates()) return 'A downloaded web update is ready.'
       return check.apk
         ? `Version ${check.version} is available.`
         : `Version ${check.version} is available, but it has no release-signed APK attached.`
     case 'current':
-      return `Up to date (${check.version}).`
+      return canInstallUpdates() ? `Up to date (${check.version}).` : `No downloaded web update is ready (${check.version}).`
     case 'no-releases':
       return 'No releases published yet.'
     case 'rate-limited':
@@ -51,6 +54,17 @@ function describe(check: UpdateCheck): string {
     case 'unknown':
       return "Couldn't read the latest release."
   }
+}
+
+// Release discovery and web deployment availability are independent. Never cache
+// web readiness in the six-hour GitHub result: verify the worker each time.
+async function availableHere(onLaunch = false): Promise<UpdateCheck | null> {
+  if (canInstallUpdates()) return onLaunch ? checkForUpdateOnLaunch() : checkForUpdate()
+  if (await webUpdateReady()) return {
+    kind: 'update-available', version: 'web-deployment',
+    releaseUrl: '', notes: '', apk: null,
+  }
+  return { kind: 'current', version: APP_VERSION }
 }
 
 /** One instance per consumer: the launch banner mounts it with `checkOnMount`, the Settings
@@ -66,10 +80,10 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
   useEffect(() => {
     if (!options?.checkOnMount) return
     // The request is throttled; an undismissed cached offer remains visible.
-    void checkForUpdateOnLaunch().then((result) => {
+    void availableHere(true).then((result) => {
       if (result) {
         setCheck(result)
-        setMessage(describe(result))
+        setMessage(result ? describe(result) : '')
       }
     })
   }, [])
@@ -79,9 +93,9 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
     inFlight.current = true
     setBusy(true)
     setMessage('Checking…')
-    void checkForUpdate().then((result) => {
+    void availableHere().then((result) => {
       setCheck(result)
-      setMessage(describe(result))
+      setMessage(result ? describe(result) : '')
       setBusy(false)
       inFlight.current = false
     })
@@ -91,10 +105,18 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
     if (inFlight.current || installInFlight) return
     if (check?.kind !== 'update-available') return
 
-    // Web/PWA: the service worker is registerType 'autoUpdate', so the new build is already
-    // cached and a reload is genuinely the whole update. No install button to break.
     if (!canInstallUpdates()) {
-      reloadForUpdate()
+      inFlight.current = true
+      installInFlight = true
+      setBusy(true)
+      setMessage('Activating the downloaded web update…')
+      void reloadForUpdate().catch(() => {
+        setMessage('The web update is not ready. Check again shortly.')
+      }).finally(() => {
+        inFlight.current = false
+        installInFlight = false
+        setBusy(false)
+      })
       return
     }
     // Android with no release-signed asset: a debug-signed APK cannot install over the
@@ -142,7 +164,8 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
   }, [check])
 
   const dismiss = useCallback(() => {
-    if (check?.kind === 'update-available') dismissUpdate(check.version)
+    // Web dismissal lasts for this page; never persist a generic key that hides future deployments.
+    if (canInstallUpdates() && check?.kind === 'update-available') dismissUpdate(check.version)
     setCheck(null)
     setMessage('')
   }, [check])

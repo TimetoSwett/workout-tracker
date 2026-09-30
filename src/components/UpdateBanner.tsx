@@ -16,7 +16,7 @@ export function UpdateBanner() {
   return (
     <div class="update-banner">
       <div class="update-banner-text" role="status">
-        <strong>Version {check.version} is available.</strong>
+        <strong>{canInstallUpdates() ? `Version ${check.version} is available.` : 'A downloaded web update is ready.'}</strong>
         {message && <span class="muted small"> {pct == null ? message : `Downloading… ${pct}%`}</span>}
       </div>
       <button class="btn primary small" disabled={busy} onClick={install}>
