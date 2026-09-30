@@ -39,3 +39,13 @@ registration.update = async () => {}
 sw.controller = null
 assert.equal(await exports.webUpdateReady(), false, 'first installation is not an update')
 console.log('PASS: absent deployment, activation-before-reload, offline, first install')
+
+// Simulate activation completing without a controllerchange notification.
+sw.controller = {}
+registration.waiting = { state: 'installed', postMessage() { registration.waiting = null } }
+const originalTimeout = globalThis.setTimeout
+globalThis.setTimeout = (fn) => originalTimeout(fn, 0)
+await exports.activateWebUpdate()
+globalThis.setTimeout = originalTimeout
+assert.equal(reloads, 2, 'activation timeout must retain a reload recovery path')
+console.log('PASS: missed activation event reloads instead of losing recovery')

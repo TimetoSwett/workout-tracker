@@ -67,15 +67,18 @@ interface GitHubRelease {
  *  android/KEYSTORE.md) and offering it would be a dead end. */
 function pickApk(assets: unknown): ReleaseApk | null {
   if (!Array.isArray(assets)) return null
+  let best: ReleaseApk | null = null
   for (const raw of assets as GitHubAsset[]) {
     const name = typeof raw?.name === 'string' ? raw.name : null
     const url = typeof raw?.browser_download_url === 'string' ? raw.browser_download_url : null
     if (!name || !url) continue
     const id = parseApkName(name)
     if (!id) continue
-    return { url, name, sizeBytes: typeof raw.size === 'number' ? raw.size : 0, ...id }
+    if (!best || id.versionCode > best.versionCode) {
+      best = { url, name, sizeBytes: typeof raw.size === 'number' ? raw.size : 0, ...id }
+    }
   }
-  return null
+  return best
 }
 
 /** Queries the latest GitHub release and compares it to the running version.
@@ -125,7 +128,9 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
     // A release with no release-signed APK is one we could never install, and
     // its tag alone cannot be ordered against an untagged running build. Say
     // so to the console and stay silent in the UI rather than offer a dead end.
-    return { kind: 'unknown', detail: `release '${tag}' has no release-signed APK asset` }
+    const detail = 'Latest release has no compatible APK. Expected workout-tracker-<versionName>-<versionCode>-release.apk; check the release workflow.'
+    console.warn('[updates]', detail)
+    return { kind: 'unknown', detail }
   }
 
   // The APK's own versionCode, not the tag, decides this. It is the number

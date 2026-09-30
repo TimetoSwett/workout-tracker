@@ -40,7 +40,7 @@ export async function webUpdateReady(): Promise<boolean> {
 export async function activateWebUpdate(): Promise<void> {
   if (!await webUpdateReady() || !readyWorker) throw new Error('No cached deployment ready')
   const worker = readyWorker
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve) => {
     const changed = () => {
       if (navigator.serviceWorker.controller !== worker) return
       clearTimeout(timer)
@@ -49,7 +49,8 @@ export async function activateWebUpdate(): Promise<void> {
     }
     const timer = setTimeout(() => {
       navigator.serviceWorker.removeEventListener('controllerchange', changed)
-      reject(new Error('Activation timed out'))
+      // SKIP_WAITING cannot be undone; reload also recovers a missed event.
+      resolve()
     }, 8000)
     navigator.serviceWorker.addEventListener('controllerchange', changed)
     worker.postMessage({ type: 'SKIP_WAITING' })

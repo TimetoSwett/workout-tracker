@@ -78,7 +78,7 @@ export function useUpdateController(options?: { checkOnMount?: boolean }): Updat
     void availableHere(true).then((result) => {
       if (result) {
         setCheck(result)
-        setMessage(result ? describe(result) : '')
+        setMessage(describe(result))
       }
     })
   }, [])
