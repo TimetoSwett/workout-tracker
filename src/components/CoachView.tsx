@@ -4,6 +4,7 @@ import { setSettings, saveMesocycle, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { aiChat, isCancelled } from '../ai'
+import { renderMarkdown } from '../markdown'
 import {
   MEMORY_SYSTEM,
   MESO_DRAFT_TRIGGER,
@@ -486,7 +487,12 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
       {active?.messages.map((m, i) => (
         <div key={i} class={`card chat-card ${m.role}`}>
           <div class="chat-label">{m.role === 'user' ? 'You' : 'Coach'}</div>
-          <div class="chat-body">{m.content}</div>
+          {/* The board's own messages are shown verbatim; only the model writes markdown. */}
+          {m.role === 'assistant' ? (
+            <div class="chat-body md">{renderMarkdown(m.content)}</div>
+          ) : (
+            <div class="chat-body">{m.content}</div>
+          )}
         </div>
       ))}
 
