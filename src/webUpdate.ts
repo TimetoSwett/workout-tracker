@@ -22,12 +22,14 @@ function reloadOnce(): void {
  * Call once at startup, before anything can activate a worker. */
 export function reloadOnControllerChange(): void {
   if (!('serviceWorker' in navigator)) return
-  // No controller at load means the first worker is still installing. Claiming
-  // this page is not a version skew — the page fetched these assets from the
-  // network, which is exactly what that worker just precached. Reloading would
-  // be a pointless flash on the user's very first visit.
-  if (!navigator.serviceWorker.controller) return
-  navigator.serviceWorker.addEventListener('controllerchange', reloadOnce)
+  // Skip the first claim of a page loaded without a controller, but remain
+  // subscribed: that same tab must reload when a later deployment claims it.
+  let controlled = Boolean(navigator.serviceWorker.controller)
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!navigator.serviceWorker.controller) return
+    if (controlled) reloadOnce()
+    controlled = true
+  })
 }
 
 export async function webUpdateReady(): Promise<boolean> {

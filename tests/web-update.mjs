@@ -91,6 +91,9 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
   env.sw.controller = { firstWorker: true }
   env.sw.dispatchEvent(new Event('controllerchange'))
   assert.equal(env.reloads, 0, 'the first worker claiming an uncontrolled page is not an update')
+  env.sw.controller = { laterDeployment: true }
+  env.sw.dispatchEvent(new Event('controllerchange'))
+  assert.equal(env.reloads, 1, 'a first-visit tab must still reload on subsequent updates')
 }
 
 // Activation that never settles — the browser claims the page with a different
