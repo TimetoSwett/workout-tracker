@@ -3,11 +3,13 @@ import type { AISettings, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync } from '../sync'
 import { syncMetrics } from '../metricsSync'
-import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, testConnection } from '../dropbox'
+import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, dropboxConfigured, testConnection } from '../dropbox'
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
 import { openExternal } from '../native'
+import type { Units } from '../units'
+import { convertStoredWeights } from '../unitsMigration'
 import {
   HEALTH_CONNECT_PLAY_STORE_URL,
   connectHealthConnect,
@@ -70,6 +72,22 @@ export function SettingsView() {
       if (a.available) void getHealthConnectPermissions().then(setHcPermissions)
     })
   }, [])
+
+  /** Every stored weight is a bare number in the current unit, so switching has to
+   *  rewrite them all — otherwise a 5,050 lbs session just relabels as 5,050 kg. */
+  function switchUnits(to: Units) {
+    if (settings.units === to) return
+    const from = settings.units
+    if (!confirm(`Switch to ${to}? Every stored weight — logged sets, bodyweight, body metrics and your goal rate — will be converted from ${from} to ${to} on this device.`)) {
+      return
+    }
+    const { workouts, metrics } = convertStoredWeights(from, to)
+    flash(`Converted to ${to}: ${workouts} workout${workouts === 1 ? '' : 's'}, ${metrics} day${metrics === 1 ? '' : 's'} of body metrics`)
+    if (dropboxConfigured(getState().settings)) {
+      void sync()
+      void syncMetrics()
+    }
+  }
 
   function flash(msg: string) {
     setStatus(msg)
@@ -198,10 +216,10 @@ export function SettingsView() {
         <div class="setting-row">
           <span>Units</span>
           <div class="seg">
-            <button class={settings.units === 'lbs' ? 'active' : ''} onClick={() => setSettings({ ...settings, units: 'lbs' })}>
+            <button class={settings.units === 'lbs' ? 'active' : ''} onClick={() => switchUnits('lbs')}>
               lbs
             </button>
-            <button class={settings.units === 'kg' ? 'active' : ''} onClick={() => setSettings({ ...settings, units: 'kg' })}>
+            <button class={settings.units === 'kg' ? 'active' : ''} onClick={() => switchUnits('kg')}>
               kg
             </button>
           </div>
