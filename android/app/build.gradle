@@ -1,6 +1,35 @@
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
+// Single source of truth for the app version (TOM-2): the repo's package.json.
+// The web build injects the same value as __APP_VERSION__ (see vite.config.ts),
+// so the version string Settings shows is by construction the version of this
+// artifact. CI asserts the built APK's versionName against package.json too.
+def appVersionName = new groovy.json.JsonSlurper()
+        .parse(rootProject.file("../package.json"))
+        .version
+def semver = (appVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/)
+if (!semver.matches()) {
+    throw new GradleException(
+            "package.json version '${appVersionName}' must be MAJOR.MINOR.PATCH " +
+            "so a monotonic Android versionCode can be derived from it.")
+}
+def versionMajor = semver[0][1] as int
+def versionMinor = semver[0][2] as int
+def versionPatch = semver[0][3] as int
+// Android refuses to install a build whose versionCode does not increase, so
+// this arithmetic has to be strictly increasing in semver order. It is - but
+// only while minor and patch stay below 100. Fail the build loudly rather than
+// ship an APK whose versionCode silently regressed and broke every future
+// update. (Bump the multipliers here, never downward, if 100 is ever too few.)
+if (versionMinor > 99 || versionPatch > 99) {
+    throw new GradleException(
+            "package.json version '${appVersionName}' would break monotonic versionCode: " +
+            "minor and patch must each stay below 100 for major*10000 + minor*100 + patch " +
+            "to keep increasing. Bump the major component instead.")
+}
+def appVersionCode = versionMajor * 10000 + versionMinor * 100 + versionPatch
+
 // Release signing credentials live outside the repo. See android/KEYSTORE.md.
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
@@ -16,8 +45,8 @@ android {
         applicationId "com.tuckerswett.workouttracker"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode
+        versionName appVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
