@@ -54,6 +54,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- In-app updates (TOM-2): this app is sideloaded, so it updates itself by handing a
+         downloaded release APK to the system package installer (AppUpdatePlugin). Declaring this
+         is necessary but not sufficient - the board also grants "install unknown apps" once, on
+         the OS settings screen, which is the only place Android allows that grant. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- Health Connect (SWE-31/SWE-32): read-only, matches HealthConnectPlugin's requested set. -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
