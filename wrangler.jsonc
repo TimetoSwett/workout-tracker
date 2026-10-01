@@ -1,0 +1,33 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  // Static-assets-only Worker: no `main`, so Cloudflare serves `dist/`
+  // directly and never boots a script. This mirrors the Worker that is
+  // already deployed (has_assets: true, has_modules: false).
+  //
+  // Before this file existed, config-less `npx wrangler deploy` fell into
+  // Wrangler's non-interactive auto-scaffold, which invented an equivalent
+  // wrangler.jsonc and pulled @cloudflare/vite-plugin on every build. That
+  // made the artifact depend on whatever Wrangler shipped that day, and it
+  // left `npx wrangler preview` with nothing to read, so every branch
+  // preview failed. Committing the config makes both commands reproducible.
+  "name": "workout-tracker",
+  "compatibility_date": "2026-09-26",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist",
+    // The app is a client-routed SPA; unknown paths must return index.html
+    // rather than a 404.
+    "not_found_handling": "single-page-application"
+  },
+
+  // Required by `wrangler preview` (the Workers Builds branch-preview deploy
+  // command) even when previews need no settings of their own. This Worker
+  // has no vars or bindings, so there is nothing to override here; leaving
+  // the block empty means a preview runs with the same top-level assets and
+  // compatibility settings as production.
+  // https://developers.cloudflare.com/workers/previews/configuration/
+  "previews": {}
+}

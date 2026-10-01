@@ -51,11 +51,13 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
   assert.equal(await env.mod.webUpdateReady(), false, 'first installation is not an update')
 }
 
+// Optional watcher calls let the same behavioral test run on the landed base,
+// where no watcher exists, and fail on the stale-tab assertion.
 // A tab that did not press Reload: clientsClaim hands it a worker whose precache
 // no longer holds this build's lazy chunks, so it has to reload onto the new one.
 {
   const env = load()
-  env.mod.reloadOnControllerChange()
+  env.mod.reloadOnControllerChange?.()
   env.sw.controller = { newDeployment: true }
   env.sw.dispatchEvent(new Event('controllerchange'))
   assert.equal(env.reloads, 1, 'a claimed tab must reload onto the deployment that claimed it')
@@ -67,7 +69,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
 // Exactly one navigation must come out of it.
 {
   const env = load()
-  env.mod.reloadOnControllerChange()
+  env.mod.reloadOnControllerChange?.()
   const worker = {
     state: 'installed',
     postMessage() {
@@ -87,7 +89,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
 {
   const env = load()
   env.sw.controller = null
-  env.mod.reloadOnControllerChange()
+  env.mod.reloadOnControllerChange?.()
   env.sw.controller = { firstWorker: true }
   env.sw.dispatchEvent(new Event('controllerchange'))
   assert.equal(env.reloads, 0, 'the first worker claiming an uncontrolled page is not an update')
@@ -102,7 +104,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve))
 // watcher, not the timeout, is what has to get it onto the new deployment.
 {
   const env = load()
-  env.mod.reloadOnControllerChange()
+  env.mod.reloadOnControllerChange?.()
   const worker = {
     state: 'installed',
     postMessage() {
@@ -125,3 +127,22 @@ console.log(
   'PASS: absent deployment, activation-before-reload, offline, first install,' +
     ' claimed tab reload, no double reload, first-ever install, unsettled activation',
 )
+
+// Keep the landed updater's recovery when activation misses its event.
+{
+  const env = load()
+  env.mod.reloadOnControllerChange?.()
+  env.registration.waiting = {
+    state: 'installed',
+    postMessage() { env.registration.waiting = null },
+  }
+  const originalTimeout = globalThis.setTimeout
+  try {
+    globalThis.setTimeout = (fn) => originalTimeout(fn, 0)
+    await env.mod.activateWebUpdate()
+  } finally {
+    globalThis.setTimeout = originalTimeout
+  }
+  assert.equal(env.reloads, 1, 'activation timeout must retain a reload recovery path')
+}
+console.log('PASS: missed activation event reloads instead of losing recovery')

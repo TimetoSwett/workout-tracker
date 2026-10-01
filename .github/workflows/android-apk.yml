@@ -14,6 +14,8 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
       - 'public/**'
       - 'assets/**'
       - 'android/**'
@@ -28,6 +30,8 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
       - 'public/**'
       - 'assets/**'
       - 'android/**'
@@ -173,6 +177,7 @@ jobs:
           # not sort against each other. Changing this format breaks the update
           # check - change parseApkName in the same commit.
           name="workout-tracker-${APP_VERSION_NAME}-${APP_VERSION_CODE}-${{ steps.signing.outputs.mode }}"
+          node scripts/assert-apk-name.mjs "$name.apk" "${{ steps.signing.outputs.mode }}"
           mkdir -p "$RUNNER_TEMP/apk"
           cp "$src" "$RUNNER_TEMP/apk/$name.apk"
           echo "name=$name" >> "$GITHUB_OUTPUT"

@@ -150,3 +150,11 @@ assert.equal((await updates.checkForUpdateOnLaunch()).kind, 'update-available', 
 console.log('PASS: versionCode comparison (newer/equal/older/tagged), dismissal scoping, debug-signed and')
 console.log('      un-parseable assets, 404/403/429/500/null/malformed, offline retry, post-install staleness,')
 console.log('      concurrent launch, storage unavailable')
+
+const multiple = release('old', RUNNING_CODE - 1)
+multiple.assets.push(...newer.assets)
+for (const assets of [multiple.assets, [...multiple.assets].reverse()]) {
+  respond({ ...multiple, assets })
+  assert.equal((await updates.checkForUpdate()).versionCode, RUNNING_CODE + 1)
+}
+console.log('PASS: highest APK selected in either asset order')
