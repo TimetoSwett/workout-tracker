@@ -14,6 +14,8 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
       - 'public/**'
       - 'assets/**'
       - 'android/**'
@@ -28,6 +30,8 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'scripts/**'
+      - 'tests/**'
       - 'public/**'
       - 'assets/**'
       - 'android/**'
@@ -165,7 +169,15 @@ jobs:
             exit 1
           fi
 
-          name="workout-tracker-${APP_VERSION_NAME}-${{ steps.signing.outputs.mode }}"
+          # The versionCode is in this name on purpose. The in-app updater reads
+          # it straight off the release asset to decide whether the release is
+          # an upgrade over the running build (src/version.ts, parseApkName).
+          # versionName alone cannot answer that: a tagged build is named
+          # '1.2.0' and an untagged one '2026.09.29.a1b2c3d', and those two do
+          # not sort against each other. Changing this format breaks the update
+          # check - change parseApkName in the same commit.
+          name="workout-tracker-${APP_VERSION_NAME}-${APP_VERSION_CODE}-${{ steps.signing.outputs.mode }}"
+          node scripts/assert-apk-name.mjs "$name.apk" "${{ steps.signing.outputs.mode }}"
           mkdir -p "$RUNNER_TEMP/apk"
           cp "$src" "$RUNNER_TEMP/apk/$name.apk"
           echo "name=$name" >> "$GITHUB_OUTPUT"

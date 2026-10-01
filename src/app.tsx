@@ -12,6 +12,7 @@ import { SettingsView } from './components/SettingsView'
 import { MesocyclesView } from './components/MesocyclesView'
 import { BodyView } from './components/BodyView'
 import { ActivityView } from './components/ActivityView'
+import { UpdateBanner } from './components/UpdateBanner'
 import { syncMetrics } from './metricsSync'
 import { syncCoach } from './coachStore'
 import { isHealthConnectSupported, syncHealthConnectNow } from './healthConnect'
@@ -59,6 +60,7 @@ export function App() {
   return (
     <div class="app">
       <main>
+        <UpdateBanner />
         {tab === 'log' && <LogView />}
         {tab === 'history' && <HistoryView />}
         {tab === 'insights' && (
