@@ -4,13 +4,14 @@ import { useStore } from '../store'
 import { getMetrics, subscribeMetrics, upsertMetric } from '../metricsStore'
 import { syncMetrics } from '../metricsSync'
 import { dropboxConfigured } from '../dropbox'
+import { localDate, localDateDaysAgo } from '../dates'
 
 function fmt(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
 function window(metrics: DailyMetric[], days: number, pick: (m: DailyMetric) => number | undefined): { date: string; value: number }[] {
-  const cutoff = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10)
+  const cutoff = localDateDaysAgo(days)
   return metrics.filter((m) => m.date >= cutoff && pick(m) != null).map((m) => ({ date: m.date, value: pick(m)! }))
 }
 
@@ -24,7 +25,7 @@ export function BodyView() {
   const [, force] = useState(0)
   const [toast, setToast] = useState('')
   const [wRange, setWRange] = useState(365)
-  const [manualDate, setManualDate] = useState(new Date().toISOString().slice(0, 10))
+  const [manualDate, setManualDate] = useState(localDate())
   const [manualWeight, setManualWeight] = useState('')
   const [manualBf, setManualBf] = useState('')
 

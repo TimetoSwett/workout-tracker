@@ -3,6 +3,7 @@ import type { DailyMetric } from './types'
 import { getMetrics, setMetrics } from './metricsStore'
 import { getState, setSettings } from './store'
 import { kgToUnits } from './units'
+import { localDate } from './dates'
 
 export interface ImportResult {
   files: string[]
@@ -82,7 +83,7 @@ function toDate(v: string | undefined): string | undefined {
   if (/^\d{10,13}$/.test(v)) {
     const ms = v.length === 10 ? parseInt(v) * 1000 : parseInt(v)
     const d = new Date(ms)
-    return isNaN(d.getTime()) ? undefined : d.toISOString().slice(0, 10)
+    return isNaN(d.getTime()) ? undefined : localDate(d)
   }
   return undefined
 }
