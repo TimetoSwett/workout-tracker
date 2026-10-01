@@ -51,11 +51,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # On PRs the default ref is a synthetic merge commit that exists
+          # nowhere in history, so an APK built from it is not reproducible and
+          # its version would name a commit nobody can check out. Build the head
+          # commit instead: the version, the artifact name and the PR's head SHA
+          # then all agree.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+
+      # One version for the whole job: the web bundle (via vite define) and the
+      # APK's versionCode/versionName are stamped from these two env vars, so
+      # what Settings shows cannot drift from what Android reports. --check
+      # fails the build rather than shipping the 0.0.0-nogit fallback.
+      - name: Resolve app version
+        run: node scripts/app-version.mjs --check >> "$GITHUB_ENV"
 
       # Capacitor 8 / AGP 8.13 need JDK 21.
       - uses: actions/setup-java@v4
@@ -103,24 +117,55 @@ jobs:
       - name: Build release APK
         working-directory: android
         run: |
-          if [ "${{ steps.signing.outputs.mode }}" = "release" ]; then
-            ./gradlew --no-daemon assembleRelease
-          else
-            ./gradlew --no-daemon assembleRelease -PdebugSignRelease
+          set -- --no-daemon assembleRelease \
+            -PappVersionCode="$APP_VERSION_CODE" \
+            -PappVersionName="$APP_VERSION_NAME"
+          if [ "${{ steps.signing.outputs.mode }}" != "release" ]; then
+            set -- "$@" -PdebugSignRelease
+          fi
+          ./gradlew "$@"
+
+      - name: Verify signature and version, name APK
+        id: apk
+        run: |
+          set -euo pipefail
+          tools="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)"
+          src=android/app/build/outputs/apk/release/app-release.apk
+          "${tools}apksigner" verify --verbose --print-certs "$src"
+
+          # Assert the artifact really carries the version we asked for. A
+          # silently-unstamped APK (the versionCode 1 bug) must fail the build,
+          # not ship.
+          # No pipes below: with pipefail, a reader that exits early (head/grep -q)
+          # sends SIGPIPE upstream and the pipeline "fails" for the wrong reason.
+          badging="$("${tools}aapt2" dump badging "$src")"
+          if ! pkg="$(grep -m1 '^package: ' <<<"$badging")"; then
+            echo "::error::aapt2 dump badging printed no 'package:' line for $src"
+            exit 1
+          fi
+          got_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" <<<"$pkg")"
+          got_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<<"$pkg")"
+          echo "APK reports versionCode=$got_code versionName=$got_name"
+          if [ "$got_code" != "$APP_VERSION_CODE" ] || [ "$got_name" != "$APP_VERSION_NAME" ]; then
+            echo "::error::APK version mismatch - expected $APP_VERSION_NAME ($APP_VERSION_CODE)," \
+                 "APK reports $got_name ($got_code)"
+            exit 1
           fi
 
-      - name: Verify signature and name APK
-        id: apk
-        env:
-          # On PRs GITHUB_SHA is the synthetic merge commit; name by the head.
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
-          src=android/app/build/outputs/apk/release/app-release.apk
-          "$apksigner" verify --verbose --print-certs "$src"
+          # And assert the bundled web app agrees, so the version the board can
+          # read in Settings is the version Android reports for the same file.
+          bundle="$RUNNER_TEMP/bundle.js"
+          if ! unzip -p "$src" 'assets/public/assets/*.js' > "$bundle"; then
+            echo "::error::No web bundle at assets/public/assets/*.js inside $src"
+            exit 1
+          fi
+          if ! grep -qF "$APP_VERSION_NAME" "$bundle"; then
+            echo "::error::Bundled web app does not contain versionName $APP_VERSION_NAME -" \
+                 "Settings would show a different version than the APK"
+            exit 1
+          fi
 
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then label="$GITHUB_REF_NAME"; else label="${HEAD_SHA::7}"; fi
-          name="workout-tracker-${label}-${{ steps.signing.outputs.mode }}"
+          name="workout-tracker-${APP_VERSION_NAME}-${{ steps.signing.outputs.mode }}"
           mkdir -p "$RUNNER_TEMP/apk"
           cp "$src" "$RUNNER_TEMP/apk/$name.apk"
           echo "name=$name" >> "$GITHUB_OUTPUT"
@@ -130,6 +175,11 @@ jobs:
         run: |
           {
             echo "## Android APK"
+            echo
+            echo "**Version:** \`$APP_VERSION_NAME\` &nbsp;·&nbsp; **versionCode:** \`$APP_VERSION_CODE\`"
+            echo
+            echo "This is what Android's app info and the app's Settings → About both report, so you can tell"
+            echo "on the phone whether this build is installed."
             echo
             echo "**Artifact:** \`${{ steps.apk.outputs.name }}.apk\` (download from the Artifacts section of this run)"
             echo
