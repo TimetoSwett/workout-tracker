@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check": "node scripts/run-checks.mjs",
     "preview": "vite preview",
     "build:android": "tsc -b && vite build --mode capacitor",
     "cap:sync": "npm run build:android && cap sync android",
