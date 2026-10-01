@@ -194,6 +194,24 @@ button {
   width: 70px;
 }
 
+/* Body -> Log weight. A `date` input carries a wide intrinsic minimum and will not shrink
+ * past it, so the row it shared could not fit the weight, body-fat and Save controls at a
+ * 390px viewport: it measured 411px and pushed Save outside the screen. The date now has a
+ * row to itself and this one holds the rest, splitting the width between the two inputs
+ * and wrapping rather than overflowing if the Save label ever runs long. */
+.weigh-in-row {
+  flex-wrap: wrap;
+}
+
+.weigh-in-row .set-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.weigh-in-row .btn {
+  flex: 0 0 auto;
+}
+
 .tabbar {
   position: fixed;
   bottom: 0;
