@@ -219,16 +219,20 @@ export function BodyView() {
 
       <div class="card">
         <h3>Log weight</h3>
+        {/* The date picker is the widest control here and it does not shrink, so it gets
+            its own row; all four on one row measured 411px at a 390px viewport and pushed
+            Save off-screen. See `.weigh-in-row`. */}
         <div class="setting-row">
           <input
             class="set-input"
             type="date"
             value={manualDate}
             onInput={(e) => setManualDate((e.target as HTMLInputElement).value)}
-            style={{ flex: 1 }}
           />
+        </div>
+        <div class="setting-row weigh-in-row">
           <input
-            class="set-input narrow"
+            class="set-input"
             type="number"
             inputMode="decimal"
             placeholder={u}
@@ -236,7 +240,7 @@ export function BodyView() {
             onInput={(e) => setManualWeight((e.target as HTMLInputElement).value)}
           />
           <input
-            class="set-input narrow"
+            class="set-input"
             type="number"
             inputMode="decimal"
             placeholder="%"

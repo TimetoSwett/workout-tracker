@@ -1,6 +1,8 @@
 import { getState, setHistory, setSettings } from './store'
-import type { Mesocycle, Workout } from './types'
+import type { Mesocycle } from './types'
 import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
+import type { WireWorkout } from './weightWire'
+import { decodeWorkout, encodeWorkout, hasUntaggedRecords } from './weightWire'
 
 const MESO_PATH = '/mesocycles.jsonl'
 
@@ -62,14 +64,23 @@ export async function sync(): Promise<string | null> {
     if (remoteWorkoutsRes.error) return remoteWorkoutsRes.error
     if (remoteMesosRes.error) return remoteMesosRes.error
 
-    const remoteWorkouts = remoteWorkoutsRes.content ? parseJsonl<Workout>(remoteWorkoutsRes.content) : []
+    // Weights arrive in the sender's unit, tagged. Decode into this device's units before
+    // merging: the merge compares records field-for-field by `updatedAt`, so mixing a kg
+    // phone's numbers with an lbs phone's would pick a winner in the wrong unit.
+    const wireWorkouts = remoteWorkoutsRes.content ? parseJsonl<WireWorkout>(remoteWorkoutsRes.content) : []
+    const remoteWorkouts = wireWorkouts.map((w) => decodeWorkout(w, settings.units))
     const remoteMesos = remoteMesosRes.content ? parseJsonl<Mesocycle>(remoteMesosRes.content) : []
 
     const { merged: mergedWorkouts, changedRemote: workoutsChanged } = merge(workouts, remoteWorkouts, (w) => w.startedAt)
     const { merged: mergedMesos, changedRemote: mesosChanged } = merge(mesocycles, remoteMesos, (m) => m.createdAt)
 
     const uploads: Promise<string | null>[] = []
-    if (workoutsChanged) uploads.push(dropboxUpload(toJsonl(mergedWorkouts)))
+    // Untagged remote records are ambiguous, so re-upload even when no `updatedAt` moved:
+    // that stamps this device's reading of them and stops the next device from having to
+    // guess too. See `senderUnits`.
+    if (workoutsChanged || hasUntaggedRecords(wireWorkouts)) {
+      uploads.push(dropboxUpload(toJsonl(mergedWorkouts.map((w) => encodeWorkout(w, settings.units)))))
+    }
     if (mesosChanged) uploads.push(dropboxUpload(toJsonl(mergedMesos), MESO_PATH))
     const errs = (await Promise.all(uploads)).filter((e): e is string => !!e)
     if (errs.length) return errs[0]
