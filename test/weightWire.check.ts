@@ -180,40 +180,25 @@ check('a lbs phone that switches to kg no longer pushes "63.5 lbs" to the other 
 })
 
 console.log('\nlegacy records written before weights were tagged')
-check('an untagged record is read as the receiving device\'s own units', () => {
-  // Documented behaviour: nothing in the payload says what an untagged number means, so it
-  // is read as the receiver's unit. That is what the app did before tagging, so a board
-  // that has only ever used one unit is unaffected.
-  const legacy = { ...workout({ weight: 140, target: 145 }, 178.4) } as WireWorkout
-  eq('weightUnit' in legacy, false, 'fixture really is untagged')
+check('missing or invalid units reject decoding without mutating raw values', () => {
   for (const receiver of UNITS) {
-    const got = decodeWorkout(legacy, receiver)
-    near(got.exercises[0].sets[0].weight, 140, `read verbatim on a ${receiver} device`)
-    near(got.bodyweight, 178.4, `bodyweight read verbatim on a ${receiver} device`)
-  }
-  const legacyMetric = { ...metric({ weight: 178.4, muscle: 80.2, leanMass: 150.1 }) } as WireMetric
-  for (const receiver of UNITS) {
-    near(decodeMetric(legacyMetric, receiver).weight, 178.4, `metric read verbatim on a ${receiver} device`)
+    for (const tag of [undefined, 'stone']) {
+      const w = { ...workout({ weight: 102.25, target: 145 }, 178.46), weightUnit: tag } as WireWorkout
+      const m = { ...metric({ weight: 178.46, muscle: 80.25, leanMass: 150.12 }), weightUnit: tag } as WireMetric
+      for (const [record, decode] of [[w, () => decodeWorkout(w, receiver)], [m, () => decodeMetric(m, receiver)]] as const) {
+        const before = JSON.stringify(record)
+        let rejected = false
+        try { decode() } catch { rejected = true }
+        eq(rejected, true, 'ambiguous record rejected')
+        eq(JSON.stringify(record), before, 'raw precision preserved')
+      }
+    }
   }
 })
-
-check('untagged records are detected, so sync can re-upload and stop the ambiguity', () => {
+check('ambiguous records are detected before sync writes', () => {
   eq(hasUntaggedRecords([]), false, 'empty remote')
-  eq(hasUntaggedRecords([encodeWorkout(workout({ weight: 140, target: 145 }, 178.4), 'lbs')]), false, 'all tagged')
-  eq(hasUntaggedRecords([{ ...workout({ weight: 140, target: 145 }, 178.4) } as WireWorkout]), true, 'one untagged')
-  eq(
-    hasUntaggedRecords([
-      encodeWorkout(workout({ weight: 140, target: 145 }, 178.4), 'lbs'),
-      { ...workout({ weight: 140, target: 145 }, 178.4) } as WireWorkout,
-    ]),
-    true,
-    'mixed remote',
-  )
-  // Reading an untagged record promotes the device's reading to a real tag, so the guess
-  // is made once rather than on every sync.
-  const promoted = encodeWorkout(decodeWorkout({ ...workout({ weight: 140, target: 145 }, 178.4) } as WireWorkout, 'lbs'), 'lbs')
-  eq(promoted.weightUnit, WIRE_UNIT, 'now tagged')
-  eq(hasUntaggedRecords([promoted]), false, 'and no longer ambiguous')
+  eq(hasUntaggedRecords([encodeWorkout(workout({ weight: 140, target: 145 }, 178.4), 'lbs')]), false, 'tagged')
+  eq(hasUntaggedRecords([workout({ weight: 140, target: 145 }, 178.4) as WireWorkout]), true, 'legacy')
 })
 
 console.log('\nprecision: the wire value must not walk on repeated sync')

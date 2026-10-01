@@ -165,38 +165,26 @@ async function main() {
   }
 
   console.log('\nlegacy data already in Dropbox, written before weights were tagged')
-  await check('untagged records are read as the receiving phone\'s units and then tagged', async () => {
-    // Exactly what the board's folder holds today: bare numbers, no `weightUnit`.
-    cloud = { '/workouts.jsonl': JSON.stringify(workout(140, 178.4)) + '\n' }
-    const b = await device('lbs')
-    eq(await b.sync(), null, 'sync succeeded')
-    eq(benchOn(b), 140, 'read verbatim on the lbs phone that wrote it')
-    eq(JSON.parse(cloud['/workouts.jsonl'].trim()).weightUnit, 'kg', 'and re-uploaded tagged')
-
-    // The documented limitation: nothing in an untagged payload says what it means, so a
-    // kg phone reading the same legacy file reads 140 as 140 kg. Tagging stops this
-    // happening to anything written from here on; it cannot retro-fix what is already there.
-    cloud = { '/workouts.jsonl': JSON.stringify(workout(140, 178.4)) + '\n' }
-    const c = await device('kg')
-    await c.sync()
-    eq(benchOn(c), 140, 'a kg phone reads the same untagged 140 as 140 kg')
-  })
-
-  await check('an untagged remote file is re-uploaded even when no record changed', async () => {
-    // `changedRemote` only looks at `updatedAt`, so without the untagged check the folder
-    // would stay ambiguous until the board next edited something.
-    cloud = { '/workouts.jsonl': JSON.stringify(workout(140, 178.4)) + '\n' }
-    const b = await device('lbs')
-    b.store.setHistory([workout(140, 178.4)], [])
-    uploads = 0
-    await b.sync()
-    eq(uploads > 0, true, 'the ambiguous file was rewritten')
-
-    // Second pass: everything is tagged now, nothing changed, so nothing is uploaded.
-    const c = await device('lbs', b.storage)
-    uploads = 0
-    await c.sync()
-    eq(uploads, 0, 'an already-tagged, unchanged folder is left alone')
+  await check('legacy sync preserves high precision and mixed-unit files on both receivers', async () => {
+    cloud = {
+      '/workouts.jsonl': JSON.stringify(workout(102.25, 178.46)) + '\n' + JSON.stringify({ ...workout(63.5, 80.9), id: 'w2' }) + '\n',
+      '/metrics.jsonl': JSON.stringify(metric(178.46)) + '\n',
+    }
+    const original = JSON.stringify(cloud)
+    for (const unit of ['lbs', 'kg'] as const) {
+      const d = await device(unit)
+      d.store.setHistory([workout(140, 180)], [])
+      d.metricsStore.setMetrics([metric(180)])
+      const local = JSON.stringify(d.storage)
+      uploads = 0
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const results = await Promise.all([d.sync(), d.syncMetrics()])
+        eq(results.every(r => r?.startsWith('Sync paused:')), true, 'explicit errors returned')
+        eq(JSON.stringify(cloud), original, 'remote bytes preserved')
+        eq(JSON.stringify(d.storage), local, 'local data unchanged')
+        eq(uploads, 0, 'no migration writes or races possible')
+      }
+    }
   })
 
   console.log(`\n${checks - failures}/${checks} checks passed`)

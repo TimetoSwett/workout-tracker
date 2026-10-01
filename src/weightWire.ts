@@ -34,23 +34,18 @@ export type Wire<T> = T & { weightUnit?: Units }
 export type WireWorkout = Wire<Workout>
 export type WireMetric = Wire<DailyMetric>
 
-/** Records written before `weightUnit` existed. Nothing on the wire says what they mean,
- *  so they are read as being in the *receiving* device's units — which is what the app did
- *  before tagging, so a board that has only ever used one unit sees no change at all. It
- *  is also the likeliest reading: untagged data was written by this same user on a device
- *  that was almost certainly set the same way.
- *
- *  The guess is wrong only for untagged data written on a device set to the *other* unit,
- *  and nothing in the payload can distinguish that case. Reading one of these promotes the
- *  guess to a tag, so it is made once and then fixed; `hasUntaggedRecords` lets sync force
- *  an upload so the remote file stops being ambiguous on the very first sync after this
- *  ships, rather than whenever a weight next changes. */
-function senderUnits(rec: { weightUnit?: Units }, receiverUnits: Units): Units {
-  return rec.weightUnit ?? receiverUnits
+/** Legacy records have no reliable unit provenance. Never guess or rewrite them.
+ *  Sync must stop before merging until an explicit, backed-up migration resolves units. */
+export const LEGACY_UNITS_ERROR =
+  'Sync paused: Dropbox contains records with missing or invalid weight units. No data was changed. Back up the Dropbox files and resolve each record’s original units before syncing.'
+
+function senderUnits(rec: { weightUnit?: Units }): Units {
+  if (rec.weightUnit !== 'lbs' && rec.weightUnit !== 'kg') throw new Error(LEGACY_UNITS_ERROR)
+  return rec.weightUnit
 }
 
 export function hasUntaggedRecords(remote: { weightUnit?: Units }[]): boolean {
-  return remote.some((r) => r.weightUnit == null)
+  return remote.some((r) => r.weightUnit !== 'lbs' && r.weightUnit !== 'kg')
 }
 
 /** `local -> wire`: exact, so a round trip returns the stored number unchanged. */
@@ -95,7 +90,7 @@ export function encodeWorkout(w: Workout, local: Units): WireWorkout {
 }
 
 export function decodeWorkout(w: WireWorkout, local: Units): Workout {
-  const from = senderUnits(w, local)
+  const from = senderUnits(w)
   const { weightUnit: _tag, ...decoded } = convertWorkoutWeights(w, (v) => into(v, from, local))
   return decoded
 }
@@ -105,7 +100,7 @@ export function encodeMetric(m: DailyMetric, local: Units): WireMetric {
 }
 
 export function decodeMetric(m: WireMetric, local: Units): DailyMetric {
-  const from = senderUnits(m, local)
+  const from = senderUnits(m)
   const { weightUnit: _tag, ...decoded } = convertKeys(m, METRIC_WEIGHT_KEYS, (v) => into(v, from, local))
   return decoded
 }

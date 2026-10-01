@@ -4,7 +4,7 @@ import { getMetrics, setMetrics } from './metricsStore'
 import { getState } from './store'
 import type { Units } from './units'
 import type { WireMetric } from './weightWire'
-import { decodeMetric, encodeMetric, hasUntaggedRecords } from './weightWire'
+import { decodeMetric, encodeMetric, hasUntaggedRecords, LEGACY_UNITS_ERROR } from './weightWire'
 
 const METRICS_PATH = '/metrics.jsonl'
 
@@ -61,6 +61,7 @@ export async function syncMetrics(): Promise<string | null> {
     // `mergeRecord` picks per-field winners, so they have to be in this device's unit
     // before they are merged with anything local.
     const wireMetrics = remote.content ? parseJsonl(remote.content) : []
+    if (hasUntaggedRecords(wireMetrics)) return LEGACY_UNITS_ERROR
     const remoteMetrics = wireMetrics.map((m) => decodeMetric(m, units))
     const byDate = new Map<string, DailyMetric>()
     for (const m of [...local, ...remoteMetrics]) {
@@ -74,7 +75,7 @@ export async function syncMetrics(): Promise<string | null> {
         const m = byDate.get(r.date)
         return !m || m.updatedAt !== r.updatedAt
       })
-    if (changedRemote || hasUntaggedRecords(wireMetrics)) {
+    if (changedRemote) {
       const err = await dropboxUpload(toJsonl(merged, units), METRICS_PATH)
       if (err) return err
     }
