@@ -176,6 +176,11 @@ export interface Settings {
   /** Dropbox app key. Public by design under PKCE — there is no client secret. */
   dropboxAppKey?: string
   ai?: AISettings
+  /** "Show AI features" (see `aiGate.ts`). Absent = on, so existing installs are unchanged.
+   *  `false` hides every AI entry point and blocks every provider call; the provider
+   *  configuration above and the stored conversations are kept, so turning it back on
+   *  restores the feature as it was. */
+  aiEnabled?: boolean
   lastSyncAt?: number
   /** Android Health Connect: true once permissions have been granted at least once. */
   healthConnectConnected?: boolean

@@ -261,7 +261,13 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
       {!hasAny && (
         <div class="card">
           <h3>Get started</h3>
-          <p class="muted small">Import your RP Strength history, build a mesocycle from scratch, or have your coach help you plan one.</p>
+          {/* `onPlanMeso` is absent when the board has AI features off, so the copy must not
+              offer the coach either. */}
+          <p class="muted small">
+            {onPlanMeso
+              ? 'Import your RP Strength history, build a mesocycle from scratch, or have your coach help you plan one.'
+              : 'Import your RP Strength history, or build a mesocycle from scratch.'}
+          </p>
           <div class="btn-row">
             <label class="btn ghost file-btn">
               Import RP Strength data
