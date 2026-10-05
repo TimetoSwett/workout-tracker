@@ -8,7 +8,9 @@ import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, dropboxConfig
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
-import { openExternal } from '../native'
+import { isNative, openExternal } from '../native'
+import { useUpdateController } from '../useUpdate'
+import { APP_VERSION, APP_VERSION_CODE } from '../version'
 import type { Units } from '../units'
 import { convertStoredWeights } from '../unitsMigration'
 import {
@@ -550,7 +552,54 @@ export function SettingsView() {
         </button>
       </div>
 
+      <AboutCard />
+
       {status && <div class="toast visible">{status}</div>}
+    </div>
+  )
+}
+
+/** Answers "am I on the fix?" without guessing, and lets the board force an update check instead
+ *  of waiting for the throttled launch one (TOM-2). APP_VERSION comes from package.json via a
+ *  Vite define, and android/app/build.gradle derives versionName from the same value, so this
+ *  string is the version of the artifact rather than a hand-maintained copy of it. */
+function AboutCard() {
+  const { check, busy, progress, message, runCheck, install } = useUpdateController()
+  const updateReady = check?.kind === 'update-available' || check?.kind === 'web-update-ready'
+  const pct = progress == null ? null : Math.round(progress * 100)
+
+  return (
+    <div class="card">
+      <h3>About</h3>
+      <p class="muted small">
+        Version <strong>{APP_VERSION}</strong> (build {APP_VERSION_CODE})
+        {isNative ? ' · Android' : ''}
+      </p>
+      <p class="muted small">
+        Android's app info shows the same version. Quote it when reporting something broken so we know which
+        build you are on.
+      </p>
+      <div class="btn-row">
+        <button class="btn ghost" disabled={busy} onClick={runCheck}>
+          {busy && !updateReady ? 'Checking…' : 'Check for updates'}
+        </button>
+        {check?.kind === 'update-available' && (
+          <button class="btn primary" disabled={busy} onClick={install}>
+            {`Update to ${check.version}`}
+          </button>
+        )}
+        {check?.kind === 'web-update-ready' && (
+          <button class="btn primary" disabled={busy} onClick={install}>
+            Reload for the new version
+          </button>
+        )}
+      </div>
+      {pct != null && (
+        <div class="update-progress">
+          <div style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {message && <p class="muted small">{message}</p>}
     </div>
   )
 }

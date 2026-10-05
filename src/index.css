@@ -1106,3 +1106,36 @@ code {
     height: 150px;
   }
 }
+
+/* In-app update affordance (TOM-2). Sits at the top of <main> so it inherits the safe-area
+   padding already applied there, and takes one line so it never pushes the Log view off screen. */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--card-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+}
+
+.update-banner-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.update-progress {
+  height: 4px;
+  margin-top: 8px;
+  background: var(--card-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.update-progress > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
