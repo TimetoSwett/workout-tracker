@@ -1,0 +1,13 @@
+TOM-19 preview probe.
+
+This file exists so a deployment can be identified as having been built from
+the branch that carries it. `main` does not have it, so a 200 here proves the
+Cloudflare preview you are talking to was built from this branch and is not a
+stale alias pointing at an older version.
+
+Used to separate two hypotheses for preview deep links returning 404 while
+production returns index.html:
+
+  1. the measured preview predated the committed wrangler.jsonc, or
+  2. Cloudflare does not apply `assets.not_found_handling` to preview
+     deployments.
