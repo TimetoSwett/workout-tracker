@@ -605,16 +605,29 @@ button {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .pr-row:last-child {
   border-bottom: none;
 }
 
+/* The label column claims a readable width before anything shrinks. A Best lifts value
+   like "225lbs (185×8, 2026-09-14)" is nowrap and eats most of a 390px card, and without
+   this the name was squeezed into a one-word-per-line column beside it. Now the value
+   drops to its own line instead, and the name stays on one. */
+.pr-row > :first-child {
+  flex: 1 1 12em;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
 .pr-val {
   color: var(--accent);
   font-weight: 600;
   white-space: nowrap;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .workout-card {
@@ -693,8 +706,19 @@ button {
   flex-wrap: wrap;
 }
 
-.timeframe-row .btn.primary {
-  margin-left: auto;
+/* The window buttons wrap as one group. Previously they shared a row with Analyze, which
+   was pushed right with `margin-left: auto`, so at 390px "All" was orphaned onto line 2
+   at the far left with Analyze floating right beside it. */
+.timeframe-opts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+/* The card is already a column flex with a gap; don't stack `.btn-row`'s own margin on it. */
+.analyze-bar .btn-row {
+  margin: 0;
 }
 
 .chat-card {
@@ -726,6 +750,122 @@ button {
 .chat-body {
   white-space: pre-wrap;
   overflow-wrap: break-word;
+}
+
+.thinking-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Markdown rendered from coach replies — see src/markdown.tsx. The block elements carry
+   their own spacing, so the container drops the `pre-wrap` that raw text needed; `.md-p`
+   keeps it so single newlines inside a paragraph still show. */
+.chat-body.md {
+  white-space: normal;
+}
+
+.chat-body.md > :first-child {
+  margin-top: 0;
+}
+
+.chat-body.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md-p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.md-h {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 12px 0 6px;
+}
+
+.md-h1 {
+  font-size: 1.1rem;
+}
+
+.md-h2 {
+  font-size: 1rem;
+}
+
+.md-h3 {
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.md-list {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.md-list li {
+  margin: 2px 0;
+}
+
+.md-list li.md-sub {
+  margin-left: 16px;
+  list-style-type: circle;
+}
+
+.md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--card-2);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.md-pre {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+
+.md-pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+}
+
+.md-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.md-link {
+  color: var(--accent);
+}
+
+.md-table-wrap {
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+
+.md-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.md-table th {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .error-card {

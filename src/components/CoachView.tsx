@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { CoachMessage, CoachThread, Goal, Mesocycle, Philosophy, Profile, Workout } from '../types'
 import { setSettings, saveMesocycle, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
-import { aiChat } from '../ai'
+import { aiChat, isCancelled } from '../ai'
+import { renderMarkdown } from '../markdown'
 import {
   MEMORY_SYSTEM,
   MESO_DRAFT_TRIGGER,
@@ -61,8 +62,21 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
   const [win, setWin] = useState<Win>(4)
   const [draftBusy, setDraftBusy] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
+  /** In-flight provider calls, so Cancel has something to abort. Refs, not state:
+   *  aborting must reach the controller the running handler created, not a render-time copy. */
+  const chatAbort = useRef<AbortController | null>(null)
+  const draftAbort = useRef<AbortController | null>(null)
 
   useEffect(() => subscribeCoach(() => force((n) => n + 1)), [])
+
+  // Don't leave a provider call running against a view that's gone.
+  useEffect(
+    () => () => {
+      chatAbort.current?.abort()
+      draftAbort.current?.abort()
+    },
+    [],
+  )
 
   useEffect(() => {
     if (intent === 'plan-meso' && settings.ai?.apiKey) {
@@ -162,11 +176,14 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
     setBusy(true)
     setError(null)
     upsertThread({ ...thread, messages: [...history, userMsg], updatedAt: Date.now() })
+    const abort = new AbortController()
+    chatAbort.current = abort
     try {
       const reply = await aiChat(
         ai,
         systemFor(thread),
         history.concat(userMsg).map((m) => ({ role: m.role, content: m.content })),
+        { signal: abort.signal },
       )
       const replyMsg: CoachMessage = { role: 'assistant', content: reply, at: Date.now() }
       const updated: CoachThread = {
@@ -178,10 +195,21 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
       void syncCoach()
       if (isAnalysis) void updateMemory(updated)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      // A cancel is the board's own doing — the question stays in the thread so it can
+      // be re-sent, but it isn't an error to report.
+      if (!isCancelled(e)) setError(e instanceof Error ? e.message : String(e))
     } finally {
+      if (chatAbort.current === abort) chatAbort.current = null
       setBusy(false)
     }
+  }
+
+  function cancelChat() {
+    chatAbort.current?.abort()
+  }
+
+  function cancelDraft() {
+    draftAbort.current?.abort()
   }
 
   function send() {
@@ -273,8 +301,10 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
     const sys = systemFor(active)
     const base = active.messages.map((m) => ({ role: m.role, content: m.content }))
     const triggerMsgs = [...base, { role: 'user' as const, content: MESO_DRAFT_TRIGGER }]
+    const abort = new AbortController()
+    draftAbort.current = abort
     try {
-      let reply = await aiChat(ai, sys, triggerMsgs)
+      let reply = await aiChat(ai, sys, triggerMsgs, { signal: abort.signal })
       try {
         const parsed = parseMesoDraftJson(reply)
         applyDraft(parsed)
@@ -290,15 +320,18 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
             }. Reply with ONLY the corrected JSON in a single \`\`\`json code block — no explanation, no other text.`,
           },
         ]
-        reply = await aiChat(ai, sys, fixMsgs)
+        reply = await aiChat(ai, sys, fixMsgs, { signal: abort.signal })
         const parsed = parseMesoDraftJson(reply)
         applyDraft(parsed)
       }
     } catch (e) {
-      setDraftError(
-        `Couldn't produce a valid mesocycle draft: ${e instanceof Error ? e.message : String(e)}`,
-      )
+      if (!isCancelled(e)) {
+        setDraftError(
+          `Couldn't produce a valid mesocycle draft: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      }
     } finally {
+      if (draftAbort.current === abort) draftAbort.current = null
       setDraftBusy(false)
     }
 
@@ -348,29 +381,31 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
       <div class="card analyze-bar">
         <div class="timeframe-row">
           <label class="muted">Review</label>
-          {WINDOWS.map((o) => (
-            <button
-              key={String(o.key)}
-              class={`btn small ${(active ? (active.scope ?? active.weeks) : win) === o.key ? 'primary' : 'ghost'}`}
-              onClick={() => {
-                setWin(o.key)
-                if (active) {
-                  upsertThread({
-                    ...active,
-                    weeks: typeof o.key === 'number' ? o.key : active.weeks,
-                    scope: typeof o.key === 'string' ? o.key : undefined,
-                  })
-                }
-              }}
-            >
-              {o.label}
-            </button>
-          ))}
+          <div class="timeframe-opts">
+            {WINDOWS.map((o) => (
+              <button
+                key={String(o.key)}
+                class={`btn small ${(active ? (active.scope ?? active.weeks) : win) === o.key ? 'primary' : 'ghost'}`}
+                onClick={() => {
+                  setWin(o.key)
+                  if (active) {
+                    upsertThread({
+                      ...active,
+                      weeks: typeof o.key === 'number' ? o.key : active.weeks,
+                      scope: typeof o.key === 'string' ? o.key : undefined,
+                    })
+                  }
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div class="btn-row">
           <button class="btn primary" onClick={analyze} disabled={busy}>
             Analyze
           </button>
-        </div>
-        <div class="btn-row" style={{ marginTop: 8 }}>
           <button class="btn ghost" onClick={planMeso} disabled={busy}>
             📅 Plan next meso
           </button>
@@ -405,6 +440,11 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
             {active.mode === 'meso-plan' && (
               <button class="btn small primary" onClick={generateDraft} disabled={busy || draftBusy}>
                 {draftBusy ? 'Generating draft…' : '📋 Generate draft'}
+              </button>
+            )}
+            {draftBusy && (
+              <button class="btn small ghost" onClick={cancelDraft}>
+                Cancel
               </button>
             )}
             <button
@@ -447,11 +487,23 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
       {active?.messages.map((m, i) => (
         <div key={i} class={`card chat-card ${m.role}`}>
           <div class="chat-label">{m.role === 'user' ? 'You' : 'Coach'}</div>
-          <div class="chat-body">{m.content}</div>
+          {/* The board's own messages are shown verbatim; only the model writes markdown. */}
+          {m.role === 'assistant' ? (
+            <div class="chat-body md">{renderMarkdown(m.content)}</div>
+          ) : (
+            <div class="chat-body">{m.content}</div>
+          )}
         </div>
       ))}
 
-      {busy && <div class="card chat-card assistant muted">Thinking…</div>}
+      {busy && (
+        <div class="card chat-card assistant muted thinking-card">
+          <span>Thinking…</span>
+          <button class="btn small ghost" onClick={cancelChat}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       {error && <div class="card error-card">{error}</div>}
 
