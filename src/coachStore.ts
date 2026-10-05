@@ -1,6 +1,6 @@
 import type { CoachMemory, CoachThread } from './types'
 import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
-import { getState } from './store'
+import { getState, subscribe } from './store'
 import { aiFeaturesEnabled } from './aiGate'
 
 const KEY = 'wt.coach.v1'
@@ -117,8 +117,14 @@ export async function syncCoach(): Promise<string | null> {
   if (!aiFeaturesEnabled(getState().settings)) return null
   if (!dropboxConfigured(getState().settings)) return 'Dropbox is not connected'
   syncing = true
+  // Latch cancellation so Off -> On cannot revive work started before Off.
+  const controller = new AbortController()
+  const unsubscribe = subscribe(() => {
+    if (!aiFeaturesEnabled(getState().settings)) controller.abort()
+  })
   try {
-    const remote = await dropboxDownload(COACH_PATH)
+    const remote = await dropboxDownload(COACH_PATH, controller.signal)
+    if (controller.signal.aborted) return null
     if (remote.error) return remote.error
     const remoteThreads = remote.content ? parseJsonl(remote.content) : []
     const remoteMemory = remote.content ? parseMemory(remote.content) : null
@@ -140,14 +146,19 @@ export async function syncCoach(): Promise<string | null> {
 
     if (remoteChanged) {
       data = { threads: mergedThreads, memory }
-      const err = await dropboxUpload(toJsonl(), COACH_PATH)
+      const err = await dropboxUpload(toJsonl(), COACH_PATH, undefined, controller.signal)
+      if (controller.signal.aborted) return null
       if (err) return err
     } else if (mergedThreads !== data.threads || memory !== data.memory) {
       data = { threads: mergedThreads, memory }
     }
     save()
     return null
+  } catch (e) {
+    if (controller.signal.aborted) return null
+    throw e
   } finally {
+    unsubscribe()
     syncing = false
   }
 }
