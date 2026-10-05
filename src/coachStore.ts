@@ -1,6 +1,7 @@
 import type { CoachMemory, CoachThread } from './types'
 import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
 import { getState } from './store'
+import { aiFeaturesEnabled } from './aiGate'
 
 const KEY = 'wt.coach.v1'
 const COACH_PATH = '/coach.jsonl'
@@ -110,6 +111,10 @@ let syncing = false
 
 export async function syncCoach(): Promise<string | null> {
   if (syncing) return null
+  // coach.jsonl only exists because of the AI coach, so with the features off its sync —
+  // including the one every launch fires — stops too. Nothing local or remote is touched,
+  // so turning the features back on resumes the same merge it would have done.
+  if (!aiFeaturesEnabled(getState().settings)) return null
   if (!dropboxConfigured(getState().settings)) return 'Dropbox is not connected'
   syncing = true
   try {

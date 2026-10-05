@@ -1,4 +1,6 @@
 import type { AISettings } from './types'
+import { getState, subscribe } from './store'
+import { AIDisabled, aiFeaturesEnabled } from './aiGate'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -30,6 +32,23 @@ export function isCancelled(e: unknown): boolean {
   return e instanceof Error && e.name === 'AICancelled'
 }
 
+/** Controllers for provider calls that are currently open, so turning the AI features off
+ *  can stop work that is already on the wire instead of only refusing the next call. */
+const inFlight = new Set<AbortController>()
+
+/** Aborts every open provider call. An aborted call rejects as `AICancelled`, which the
+ *  coach already treats as the board's own doing and does not report as an error. */
+export function abortInFlightAI() {
+  for (const controller of [...inFlight]) controller.abort()
+}
+
+// Watching the store rather than the Settings toggle's click handler means the kill switch
+// holds for any path that writes the preference, and the abort reaches calls started from
+// a view that has since been unmounted.
+subscribe(() => {
+  if (!aiFeaturesEnabled(getState().settings)) abortInFlightAI()
+})
+
 /** One request under a single abort scope that covers reading the body as well as the
  *  fetch — a provider that sends headers and then stalls mid-body has to time out too.
  *  `label` prefixes the HTTP error so each provider keeps the message it already had. */
@@ -44,6 +63,7 @@ async function requestJson(
 
   const timeoutMs = options?.timeoutMs ?? AI_TIMEOUT_MS
   const controller = new AbortController()
+  inFlight.add(controller)
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
@@ -90,6 +110,7 @@ async function requestJson(
     throw e
   } finally {
     clearTimeout(timer)
+    inFlight.delete(controller)
     caller?.removeEventListener('abort', onAbort)
   }
 }
@@ -100,6 +121,11 @@ export async function aiChat(
   messages: ChatMessage[],
   options?: AIChatOptions,
 ): Promise<string> {
+  // The single network boundary for every AI feature, so the switch does not depend on
+  // each call site remembering to ask. Checked against the live store, not a copy the
+  // caller captured, so a call queued before the switch flipped still does not go out.
+  if (!aiFeaturesEnabled(getState().settings)) throw new AIDisabled()
+
   if (ai.provider === 'anthropic') {
     const data = await requestJson(
       'https://api.anthropic.com/v1/messages',

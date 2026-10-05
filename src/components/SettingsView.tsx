@@ -8,6 +8,7 @@ import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, dropboxConfig
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
+import { aiFeaturesEnabled } from '../aiGate'
 import { isNative, openExternal } from '../native'
 import { useUpdateController } from '../useUpdate'
 import { APP_VERSION, APP_VERSION_CODE } from '../version'
@@ -67,6 +68,7 @@ export function SettingsView() {
   const [hcPermissions, setHcPermissions] = useState<HealthConnectPermissionResult | null>(null)
   const [hcBusy, setHcBusy] = useState(false)
   const [hcStatus, setHcStatus] = useState('')
+  const aiOn = aiFeaturesEnabled(settings)
 
   useEffect(() => {
     if (!isHealthConnectSupported()) return
@@ -75,6 +77,16 @@ export function SettingsView() {
       if (a.available) void getHealthConnectPermissions().then(setHcPermissions)
     })
   }, [])
+
+  /** Persisting the preference is all this does: `ai.ts` reads it before every provider
+   *  call and aborts anything already in flight, and the views read it to decide what to
+   *  show. The provider configuration and the coach conversations are deliberately left
+   *  alone, so turning it back on restores the feature rather than rebuilding it. */
+  function setAIEnabled(enabled: boolean) {
+    if (aiFeaturesEnabled(settings) === enabled) return
+    setSettings({ ...settings, aiEnabled: enabled })
+    flash(enabled ? 'AI features on' : 'AI features off')
+  }
 
   /** Every stored weight is a bare number in the current unit, so switching has to
    *  rewrite them all — otherwise a 5,050 lbs session just relabels as 5,050 kg. */
@@ -246,6 +258,22 @@ export function SettingsView() {
           />
           <span class="muted">sec</span>
         </div>
+        <div class="setting-row">
+          <span>Show AI features</span>
+          <div class="seg">
+            <button class={aiOn ? 'active' : ''} onClick={() => setAIEnabled(true)}>
+              On
+            </button>
+            <button class={!aiOn ? 'active' : ''} onClick={() => setAIEnabled(false)}>
+              Off
+            </button>
+          </div>
+        </div>
+        <p class="muted small">
+          {aiOn
+            ? 'The Coach tab, meso drafting and the AI provider settings below are available.'
+            : 'The Coach tab, meso drafting and the AI provider settings are hidden, and nothing is sent to an AI provider. Your provider settings and saved conversations are kept — turn this back on to use them again.'}
+        </p>
       </div>
 
       <div class="card">
@@ -357,69 +385,71 @@ export function SettingsView() {
         )}
       </div>
 
-      <div class="card">
-        <h3>AI provider</h3>
-        <div class="setting-row">
-          <span>Provider</span>
-          <div class="seg">
-            <button
-              class={ai.provider === 'anthropic' ? 'active' : ''}
-              onClick={() => setAi({ ...ai, provider: 'anthropic' })}
-            >
-              Claude
-            </button>
-            <button
-              class={ai.provider === 'openai' ? 'active' : ''}
-              onClick={() =>
-                setAi({
-                  ...ai,
-                  provider: 'openai',
-                  baseUrl: ai.baseUrl || 'https://nano-gpt.com/api/v1',
-                  model: ai.model?.startsWith('claude') ? '' : ai.model,
-                })
-              }
-            >
-              OpenAI-compatible
-            </button>
+      {aiOn && (
+        <div class="card">
+          <h3>AI provider</h3>
+          <div class="setting-row">
+            <span>Provider</span>
+            <div class="seg">
+              <button
+                class={ai.provider === 'anthropic' ? 'active' : ''}
+                onClick={() => setAi({ ...ai, provider: 'anthropic' })}
+              >
+                Claude
+              </button>
+              <button
+                class={ai.provider === 'openai' ? 'active' : ''}
+                onClick={() =>
+                  setAi({
+                    ...ai,
+                    provider: 'openai',
+                    baseUrl: ai.baseUrl || 'https://nano-gpt.com/api/v1',
+                    model: ai.model?.startsWith('claude') ? '' : ai.model,
+                  })
+                }
+              >
+                OpenAI-compatible
+              </button>
+            </div>
           </div>
-        </div>
-        {ai.provider === 'anthropic' ? (
-          <p class="muted small">
-            Get a key at console.anthropic.com. Default model: claude-sonnet-4-5.
-          </p>
-        ) : (
-          <p class="muted small">
-            Works with NanoGPT, OpenRouter, or any OpenAI-compatible API. Set the base URL and model name
-            from your provider's docs.
-          </p>
-        )}
-        <input
-          class="text-input"
-          type="text"
-          placeholder="Model (e.g. claude-sonnet-4-5)"
-          value={ai.model}
-          onInput={(e) => setAi({ ...ai, model: (e.target as HTMLInputElement).value })}
-        />
-        {ai.provider === 'openai' && (
+          {ai.provider === 'anthropic' ? (
+            <p class="muted small">
+              Get a key at console.anthropic.com. Default model: claude-sonnet-4-5.
+            </p>
+          ) : (
+            <p class="muted small">
+              Works with NanoGPT, OpenRouter, or any OpenAI-compatible API. Set the base URL and model name
+              from your provider's docs.
+            </p>
+          )}
           <input
             class="text-input"
             type="text"
-            placeholder="Base URL (e.g. https://nano-gpt.com/api/v1)"
-            value={ai.baseUrl ?? ''}
-            onInput={(e) => setAi({ ...ai, baseUrl: (e.target as HTMLInputElement).value })}
+            placeholder="Model (e.g. claude-sonnet-4-5)"
+            value={ai.model}
+            onInput={(e) => setAi({ ...ai, model: (e.target as HTMLInputElement).value })}
           />
-        )}
-        <input
-          class="text-input"
-          type="password"
-          placeholder={settings.ai?.apiKey ? '•••• saved — enter to replace' : 'API key'}
-          value={ai.apiKey}
-          onInput={(e) => setAi({ ...ai, apiKey: (e.target as HTMLInputElement).value })}
-        />
-        <button class="btn wide" onClick={saveAI}>
-          Save & test AI
-        </button>
-      </div>
+          {ai.provider === 'openai' && (
+            <input
+              class="text-input"
+              type="text"
+              placeholder="Base URL (e.g. https://nano-gpt.com/api/v1)"
+              value={ai.baseUrl ?? ''}
+              onInput={(e) => setAi({ ...ai, baseUrl: (e.target as HTMLInputElement).value })}
+            />
+          )}
+          <input
+            class="text-input"
+            type="password"
+            placeholder={settings.ai?.apiKey ? '•••• saved — enter to replace' : 'API key'}
+            value={ai.apiKey}
+            onInput={(e) => setAi({ ...ai, apiKey: (e.target as HTMLInputElement).value })}
+          />
+          <button class="btn wide" onClick={saveAI}>
+            Save & test AI
+          </button>
+        </div>
+      )}
 
       <div class="card">
         <h3>Health data (Samsung Health)</h3>
