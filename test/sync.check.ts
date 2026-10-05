@@ -33,18 +33,24 @@ function eq(actual: unknown, expected: unknown, what: string) {
 /** The shared Dropbox folder, keyed by the paths `sync.ts`/`metricsSync.ts` use. */
 let cloud: Record<string, string> = {}
 let uploads = 0
+let revisions: Record<string, number> = {}
+let intervene: (() => void) | undefined
 
 const dropboxStub = {
+  REVISION_CONFLICT: 'revision conflict',
   dropboxConfigured: () => true,
-  dropboxDownload: async (path = '/workouts.jsonl') => ({ content: cloud[path] ?? null }),
-  dropboxUpload: async (content: string, path = '/workouts.jsonl') => {
+  dropboxDownload: async (path = '/workouts.jsonl') => ({ content: cloud[path] ?? null, rev: cloud[path] == null ? undefined : String(revisions[path] ?? 0) }),
+  dropboxUpload: async (content: string, path = '/workouts.jsonl', revision?: string | null) => {
+    if (intervene) { const callback = intervene; intervene = undefined; callback() }
+    if (revision !== undefined && revision !== (cloud[path] == null ? null : String(revisions[path] ?? 0))) return 'revision conflict'
     uploads++
+    revisions[path] = (revisions[path] ?? 0) + 1
     cloud[path] = content
     return null
   },
 }
 
-const APP_MODULES = ['store', 'metricsStore', 'sync', 'metricsSync', 'weightWire', 'units', 'dropbox']
+const APP_MODULES = ['store', 'metricsStore', 'sync', 'metricsSync', 'weightWire', 'units', 'dropbox', 'legacyWeights']
 
 /** A phone: its own localStorage, its own module instances, the shared folder. */
 async function device(units: Units, storage: Record<string, string> = {}) {
@@ -185,6 +191,48 @@ async function main() {
         eq(uploads, 0, 'no migration writes or races possible')
       }
     }
+  })
+
+  await check('unrelated cross-unit uploads preserve remote precision', async () => {
+    cloud = { '/workouts.jsonl': JSON.stringify({ ...workout(102.25, 178.46), weightUnit: 'lbs' }) + '\n', '/metrics.jsonl': JSON.stringify({ ...metric(178.46), weightUnit: 'lbs' }) + '\n' }
+    const d = await device('kg')
+    await d.sync(); await d.syncMetrics()
+    d.store.setHistory([...d.store.getState().workouts, { ...workout(50, 80), id: 'other' }], [])
+    d.metricsStore.setMetrics([...d.metricsStore.getMetrics(), { ...metric(80), date: '2026-09-29' }])
+    eq(await d.sync(), null, 'workouts sync')
+    eq(await d.syncMetrics(), null, 'metrics sync')
+    eq(JSON.parse(cloud['/workouts.jsonl'].split('\n')[0]).bodyweight, 178.46, 'original wire bodyweight')
+    eq(JSON.parse(cloud['/metrics.jsonl'].split('\n')[0]).weight, 178.46, 'original wire metric')
+  })
+  await check('metric field merge preserves precise weight on a newer steps-only edit', async () => {
+    cloud = { '/metrics.jsonl': JSON.stringify({ ...metric(178.46), leanMass: 102.25, weightUnit: 'lbs' }) + '\n' }
+    const d = await device('kg')
+    await d.syncMetrics()
+    d.metricsStore.setMetrics([{ ...d.metricsStore.getMetrics()[0], steps: 9999, updatedAt: 1_759_000_200_000 }])
+    eq(await d.syncMetrics(), null, 'newer metric sync')
+    const wire = JSON.parse(cloud['/metrics.jsonl'])
+    eq(wire.weight, 178.46, 'weight retains source precision')
+    eq(wire.leanMass, 102.25, 'lean mass retains source precision')
+    eq(wire.steps, 9999, 'steps edit merged')
+  })
+  await check('malformed remote files pause without dropping raw lines', async () => {
+    cloud = { '/workouts.jsonl': '{bad}\n', '/metrics.jsonl': '{bad}\n' }
+    const d = await device('lbs'); const before = JSON.stringify(d.storage); uploads = 0
+    eq(typeof await d.sync(), 'string', 'workout error')
+    eq(typeof await d.syncMetrics(), 'string', 'metric error')
+    eq(uploads, 0, 'no uploads'); eq(JSON.stringify(d.storage), before, 'local unchanged')
+  })
+  await check('intervening remote writes survive conflict re-read and merge', async () => {
+    cloud = {}
+    const d = await device('lbs')
+    d.store.setHistory([workout(102.25, 178.46)], [])
+    intervene = () => { cloud['/workouts.jsonl'] = JSON.stringify({ ...workout(50, 80), id: 'other', weightUnit: 'kg' }) + '\n'; revisions['/workouts.jsonl'] = 99 }
+    eq(await d.sync(), null, 'retry succeeds')
+    eq(d.store.getState().workouts.length, 2, 'both workouts survive')
+    d.metricsStore.setMetrics([metric(178.46)])
+    intervene = () => { cloud['/metrics.jsonl'] = JSON.stringify({ ...metric(80), date: '2026-09-29', weightUnit: 'kg' }) + '\n'; revisions['/metrics.jsonl'] = 99 }
+    eq(await d.syncMetrics(), null, 'metric retry succeeds')
+    eq(d.metricsStore.getMetrics().length, 2, 'both metrics survive')
   })
 
   console.log(`\n${checks - failures}/${checks} checks passed`)

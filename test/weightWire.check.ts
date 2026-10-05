@@ -10,7 +10,6 @@ import type { DailyMetric, Workout } from '../src/types'
 import type { Units } from '../src/units'
 import { convertWeight, convertWeightExact } from '../src/units'
 import {
-  WIRE_UNIT,
   decodeMetric,
   decodeWorkout,
   encodeMetric,
@@ -111,7 +110,7 @@ for (const sender of UNITS) {
   for (const receiver of UNITS) {
     check(`${sender} sender -> ${receiver} receiver`, () => {
       const wire = encodeWorkout(workout({ weight: BENCH[sender], target: TARGET[sender] }, BODY[sender]), sender)
-      eq(wire.weightUnit, WIRE_UNIT, 'wire records its unit')
+      eq(wire.weightUnit, sender, 'wire records its unit')
 
       const got = decodeWorkout(JSON.parse(JSON.stringify(wire)) as WireWorkout, receiver)
       const set = got.exercises[0].sets[0]
@@ -135,7 +134,7 @@ for (const sender of UNITS) {
   for (const receiver of UNITS) {
     check(`${sender} sender -> ${receiver} receiver`, () => {
       const wire = encodeMetric(metric({ weight: BENCH[sender], muscle: MUSCLE[sender], leanMass: LEAN[sender] }), sender)
-      eq(wire.weightUnit, WIRE_UNIT, 'wire records its unit')
+      eq(wire.weightUnit, sender, 'wire records its unit')
 
       const got = decodeMetric(JSON.parse(JSON.stringify(wire)) as WireMetric, receiver)
       near(got.weight, BENCH[receiver], 'weight')
@@ -206,7 +205,7 @@ check('local -> wire -> local returns the stored number for both units', () => {
   // Rounding on upload is what would make this drift, so these are values whose kg
   // equivalent does not land on a tenth.
   for (const local of UNITS) {
-    for (const v of [137.5, 140, 62.4, 2.5, 0.1, 405.5, 178.4, 63.5]) {
+    for (const v of [178.46, 102.25, 137.5, 140, 62.4, 2.5, 0.1, 405.5, 178.4, 63.5]) {
       const back = decodeWorkout(encodeWorkout(workout({ weight: v, target: v }, v), local), local)
       eq(back.exercises[0].sets[0].weight, v, `${v} ${local} round trip`)
       eq(back.bodyweight, v, `${v} ${local} bodyweight round trip`)

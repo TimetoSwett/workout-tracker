@@ -2,27 +2,9 @@ import type { DailyMetric, Workout } from './types'
 import type { Units } from './units'
 import { convertWeightExact } from './units'
 
-/** Everything this app stores locally is a bare number in whatever `settings.units` was
- *  set to on *that device* when it was written (see `convertStoredWeights`). Units are
- *  per-device and deliberately not synced, so a bare number is meaningless once it leaves
- *  the device: a 140 lbs bench uploaded as `140` reads back as 140 kg on a kg phone, and
- *  switching one device to kg rewrote its own numbers to 63.5 and pushed those to a phone
- *  still in lbs, which showed "63.5 lbs".
- *
- *  So the synced JSONL has its own representation, separate from local storage:
- *
- *   - every weight is in `WIRE_UNIT`, at full precision
- *   - every record carries `weightUnit` naming the unit its weights are in
- *
- *  `encode*` converts out of the device's units on upload, `decode*` converts back into
- *  them on download. Local storage is untouched by this — it stays in device units, so
- *  the offline unit switch keeps working exactly as before.
- *
- *  A weight that never crosses units survives any number of syncs unchanged. One that is
- *  re-uploaded by a phone set to the other unit can move by a single display tenth once —
- *  that phone stores it rounded to 0.1 of its own unit — and then settles. */
-export const WIRE_UNIT: Units = 'kg'
-
+/** Wire tags name the native unit of the numbers. Upload adds metadata only;
+ * same-unit decoding preserves all precision. Cross-unit decoding rounds for local
+ * display. Sync preserves remote wire records when unrelated local records change. */
 /** Weights the app keeps in whatever unit `settings.units` names, to be converted together. */
 const SET_WEIGHT_KEYS = ['weight', 'weightTarget'] as const
 const METRIC_WEIGHT_KEYS = ['weight', 'muscle', 'leanMass'] as const
@@ -48,17 +30,8 @@ export function hasUntaggedRecords(remote: { weightUnit?: Units }[]): boolean {
   return remote.some((r) => r.weightUnit !== 'lbs' && r.weightUnit !== 'kg')
 }
 
-/** `local -> wire`: exact, so a round trip returns the stored number unchanged. */
-function out(v: number | null | undefined, from: Units): number | null | undefined {
-  return v == null ? v : convertWeightExact(v, from, WIRE_UNIT)
-}
-
-/** `wire -> local`: rounded to 0.1, the precision every weight in the app is stored and
- *  shown at. The rounding happens even when the units already match, because the wire
- *  value is deliberately unrounded — `convertWeight` short-circuits a same-unit call, so
- *  going through it would drop 63.502932429341875 straight into a kg device's storage. */
 function into(v: number | null | undefined, from: Units, to: Units): number | null | undefined {
-  return v == null ? v : Math.round(convertWeightExact(v, from, to) * 10) / 10
+  return v == null || from === to ? v : Math.round(convertWeightExact(v, from, to) * 10) / 10
 }
 
 type Convert = (v: number | null | undefined) => number | null | undefined
@@ -86,7 +59,7 @@ function convertWorkoutWeights(w: WireWorkout, f: Convert): WireWorkout {
 }
 
 export function encodeWorkout(w: Workout, local: Units): WireWorkout {
-  return { ...convertWorkoutWeights(w, (v) => out(v, local)), weightUnit: WIRE_UNIT }
+  return { ...w, weightUnit: local }
 }
 
 export function decodeWorkout(w: WireWorkout, local: Units): Workout {
@@ -96,7 +69,7 @@ export function decodeWorkout(w: WireWorkout, local: Units): Workout {
 }
 
 export function encodeMetric(m: DailyMetric, local: Units): WireMetric {
-  return { ...convertKeys(m, METRIC_WEIGHT_KEYS, (v) => out(v, local)), weightUnit: WIRE_UNIT }
+  return { ...m, weightUnit: local }
 }
 
 export function decodeMetric(m: WireMetric, local: Units): DailyMetric {

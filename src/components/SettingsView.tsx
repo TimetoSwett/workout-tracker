@@ -1,3 +1,4 @@
+import { LegacyWeights } from './LegacyWeights'
 import { useEffect, useState } from 'preact/hooks'
 import type { AISettings, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
@@ -247,6 +248,7 @@ export function SettingsView() {
 
       <div class="card">
         <h3>Dropbox sync</h3>
+        <LegacyWeights />
         <p class="muted small">
           Data file: <code>/Apps/Workout Tracker/workouts.jsonl</code>
           {settings.lastSyncAt && <> · last synced {new Date(settings.lastSyncAt).toLocaleString()}</>}
