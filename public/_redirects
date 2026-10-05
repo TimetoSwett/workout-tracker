@@ -1,0 +1,12 @@
+# SPA fallback, duplicated here on purpose.
+#
+# `assets.not_found_handling: "single-page-application"` in wrangler.jsonc
+# already does this for the production deployment, but Cloudflare does not
+# apply that setting to Preview deployments (measured: TOM-19), so a deep link
+# into a branch preview 404s where production serves index.html.
+#
+# `_redirects` is uploaded with the Preview deployment, so the rule reaches
+# both. It is a dynamic rule (it contains a splat), which Cloudflare evaluates
+# only after static asset matching, so real files still win and production
+# behaviour is unchanged.
+/*  /index.html  200
