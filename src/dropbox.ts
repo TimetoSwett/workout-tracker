@@ -201,13 +201,17 @@ async function getAccessToken(force = false): Promise<{ token: string | null; er
 }
 
 /** Runs a request with a valid token, retrying once on 401 with a forced refresh. */
-async function authed(run: (token: string) => Promise<Response>): Promise<{ res?: Response; error?: string }> {
+async function authed(run: (token: string) => Promise<Response>, signal?: AbortSignal): Promise<{ res?: Response; error?: string }> {
+  if (signal?.aborted) return {}
   const first = await getAccessToken()
+  if (signal?.aborted) return {}
   if (!first.token) return { error: first.error ?? NOT_CONNECTED }
   try {
     const res = await run(first.token)
     if (res.status !== 401) return { res }
+    if (signal?.aborted) return {}
     const again = await getAccessToken(true)
+    if (signal?.aborted) return {}
     if (!again.token) return { error: again.error ?? RECONNECT }
     return { res: await run(again.token) }
   } catch (e) {
@@ -215,12 +219,14 @@ async function authed(run: (token: string) => Promise<Response>): Promise<{ res?
   }
 }
 
-export async function dropboxDownload(path: string = DATA_PATH): Promise<{ content: string | null; rev?: string; error?: string }> {
+export async function dropboxDownload(path: string = DATA_PATH, signal?: AbortSignal): Promise<{ content: string | null; rev?: string; error?: string }> {
   const { res, error } = await authed((token) =>
     fetch(`${CONTENT_API}/files/download`, {
+      signal,
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Dropbox-API-Arg': JSON.stringify({ path }) },
     }),
+    signal,
   )
   if (error || !res) return { content: null, error }
   if (res.status === 409) {
@@ -240,9 +246,10 @@ export async function dropboxDownload(path: string = DATA_PATH): Promise<{ conte
 
 export const REVISION_CONFLICT = 'Dropbox file changed; retry sync.'
 
-export async function dropboxUpload(content: string, path: string = DATA_PATH, revision?: string | null): Promise<string | null> {
+export async function dropboxUpload(content: string, path: string = DATA_PATH, revision?: string | null, signal?: AbortSignal): Promise<string | null> {
   const { res, error } = await authed((token) =>
     fetch(`${CONTENT_API}/files/upload`, {
+      signal,
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -251,6 +258,7 @@ export async function dropboxUpload(content: string, path: string = DATA_PATH, r
       },
       body: content,
     }),
+    signal,
   )
   if (error) return error
   if (!res) return 'Upload failed'
