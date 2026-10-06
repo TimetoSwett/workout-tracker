@@ -1148,3 +1148,24 @@ code {
 
 .logging .tabbar { position: static; transform: none; flex: none; }
 .logging main { padding-bottom: 12px; overflow: auto; }
+
+/* Landscape with the keyboard up is the tightest posture the app has. Reserving the timer's
+   space fixed the overlap, but at a 214px visual viewport the fixed bands — 49px of timer, 22px
+   of page padding, 54px of tab bar — left the set editor 67px, a single row. Nothing was
+   covered or unreachable; it was just unusable.
+
+   Trim every band a little rather than drop one outright, so no affordance disappears and the
+   change reverses the moment the keyboard closes: the timer loses its "REST" caption (the big
+   countdown already says what it is), the tab bar keeps its icons but not its captions, and the
+   page padding and gaps shrink. That roughly doubles the editor. Paired with the explicit
+   reveal-on-resize in app.tsx, the row being typed into is scrolled into that space. */
+.app.logging.compact main { padding-top: calc(6px + var(--safe-top)); padding-bottom: 6px; }
+.app.logging.compact .active-log { gap: 6px; }
+.app.logging.compact .active-log .rest-timer { padding: 3px 8px; }
+.app.logging.compact .rest-label { display: none; }
+.app.logging.compact .log-header { margin-bottom: 6px; }
+/* Zeroing the button font size drops the caption text node, which has no element to target;
+   the icon sets its own size in rem so it is unaffected, and the caption stays in the
+   accessibility tree. Needs the #app prefix to out-specify `#app .tabbar button` above. */
+#app .logging.compact .tabbar button { padding: 5px 0 6px; gap: 0; font-size: 0; }
+#app .logging.compact .tabbar .tab-icon { font-size: 1.15rem; }
