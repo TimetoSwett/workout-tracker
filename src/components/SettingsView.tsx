@@ -1,13 +1,18 @@
+import { LegacyWeights } from './LegacyWeights'
 import { useEffect, useState } from 'preact/hooks'
 import type { AISettings, Workout } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync } from '../sync'
 import { syncMetrics } from '../metricsSync'
-import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, testConnection } from '../dropbox'
+import { authorizeUrl, beginAuth, completeAuth, disconnectDropbox, dropboxConfigured, testConnection } from '../dropbox'
 import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
-import { openExternal } from '../native'
+import { isNative, openExternal } from '../native'
+import { useUpdateController } from '../useUpdate'
+import { APP_VERSION, APP_VERSION_CODE } from '../version'
+import type { Units } from '../units'
+import { convertStoredWeights } from '../unitsMigration'
 import {
   HEALTH_CONNECT_PLAY_STORE_URL,
   connectHealthConnect,
@@ -70,6 +75,22 @@ export function SettingsView() {
       if (a.available) void getHealthConnectPermissions().then(setHcPermissions)
     })
   }, [])
+
+  /** Every stored weight is a bare number in the current unit, so switching has to
+   *  rewrite them all — otherwise a 5,050 lbs session just relabels as 5,050 kg. */
+  function switchUnits(to: Units) {
+    if (settings.units === to) return
+    const from = settings.units
+    if (!confirm(`Switch to ${to}? Every stored weight — logged sets, bodyweight, body metrics and your goal rate — will be converted from ${from} to ${to} on this device.`)) {
+      return
+    }
+    const { workouts, metrics } = convertStoredWeights(from, to)
+    flash(`Converted to ${to}: ${workouts} workout${workouts === 1 ? '' : 's'}, ${metrics} day${metrics === 1 ? '' : 's'} of body metrics`)
+    if (dropboxConfigured(getState().settings)) {
+      void sync()
+      void syncMetrics()
+    }
+  }
 
   function flash(msg: string) {
     setStatus(msg)
@@ -145,7 +166,10 @@ export function SettingsView() {
     }
     const next = { ...ai, apiKey: key }
     try {
-      const reply = await aiChat(next, 'Reply with exactly: OK', [{ role: 'user', content: 'ping' }])
+      // A one-token liveness probe, so it gets a much tighter cap than a real generation.
+      const reply = await aiChat(next, 'Reply with exactly: OK', [{ role: 'user', content: 'ping' }], {
+        timeoutMs: 20_000,
+      })
       setSettings({ ...settings, ai: next })
       setAi({ ...ai, apiKey: '' })
       flash(`AI works ✓ (${reply.slice(0, 40)})`)
@@ -198,10 +222,10 @@ export function SettingsView() {
         <div class="setting-row">
           <span>Units</span>
           <div class="seg">
-            <button class={settings.units === 'lbs' ? 'active' : ''} onClick={() => setSettings({ ...settings, units: 'lbs' })}>
+            <button class={settings.units === 'lbs' ? 'active' : ''} onClick={() => switchUnits('lbs')}>
               lbs
             </button>
-            <button class={settings.units === 'kg' ? 'active' : ''} onClick={() => setSettings({ ...settings, units: 'kg' })}>
+            <button class={settings.units === 'kg' ? 'active' : ''} onClick={() => switchUnits('kg')}>
               kg
             </button>
           </div>
@@ -226,6 +250,7 @@ export function SettingsView() {
 
       <div class="card">
         <h3>Dropbox sync</h3>
+        <LegacyWeights />
         <p class="muted small">
           Data file: <code>/Apps/Workout Tracker/workouts.jsonl</code>
           {settings.lastSyncAt && <> · last synced {new Date(settings.lastSyncAt).toLocaleString()}</>}
@@ -414,17 +439,27 @@ export function SettingsView() {
               const input = e.target as HTMLInputElement
               const files = Array.from(input.files ?? [])
               if (!files.length) return
-              const { importSamsungHealth } = await import('../healthImport')
-              const res = await importSamsungHealth(files, settings.units)
-              input.value = ''
-              flash(
-                `${res.days.added} new days, ${res.days.updated} updated (${res.files.length} files recognized)` +
-                  (res.bodyweight ? ` — bodyweight now ${res.bodyweight}${settings.units}` : '') +
-                  (res.errors.length ? ` — issues: ${res.errors[0]}` : ''),
-              )
-              if (settings.dropboxToken) {
-                const { syncMetrics } = await import('../metricsSync')
-                void syncMetrics()
+              try {
+                // healthImport is a real split chunk. A tab claimed by a newer
+                // service worker can no longer fetch its own build's hashes,
+                // so the import has to fail out loud rather than vanish.
+                const { importSamsungHealth } = await import('../healthImport')
+                const res = await importSamsungHealth(files, settings.units)
+                flash(
+                  `${res.days.added} new days, ${res.days.updated} updated (${res.files.length} files recognized)` +
+                    (res.bodyweight ? ` — bodyweight now ${res.bodyweight}${settings.units}` : '') +
+                    (res.errors.length ? ` — issues: ${res.errors[0]}` : ''),
+                )
+                if (settings.dropboxToken) {
+                  const { syncMetrics } = await import('../metricsSync')
+                  void syncMetrics()
+                }
+              } catch (err) {
+                flash(`Import failed: ${err instanceof Error ? err.message : String(err)}`)
+              } finally {
+                // Always: a dirty picker will not re-fire onChange when the
+                // user reselects the same files after a failure.
+                input.value = ''
               }
             }}
           />
@@ -527,7 +562,54 @@ export function SettingsView() {
         </button>
       </div>
 
+      <AboutCard />
+
       {status && <div class="toast visible">{status}</div>}
+    </div>
+  )
+}
+
+/** Answers "am I on the fix?" without guessing, and lets the board force an update check instead
+ *  of waiting for the throttled launch one (TOM-2). APP_VERSION comes from package.json via a
+ *  Vite define, and android/app/build.gradle derives versionName from the same value, so this
+ *  string is the version of the artifact rather than a hand-maintained copy of it. */
+function AboutCard() {
+  const { check, busy, progress, message, runCheck, install } = useUpdateController()
+  const updateReady = check?.kind === 'update-available' || check?.kind === 'web-update-ready'
+  const pct = progress == null ? null : Math.round(progress * 100)
+
+  return (
+    <div class="card">
+      <h3>About</h3>
+      <p class="muted small">
+        Version <strong>{APP_VERSION}</strong> (build {APP_VERSION_CODE})
+        {isNative ? ' · Android' : ''}
+      </p>
+      <p class="muted small">
+        Android's app info shows the same version. Quote it when reporting something broken so we know which
+        build you are on.
+      </p>
+      <div class="btn-row">
+        <button class="btn ghost" disabled={busy} onClick={runCheck}>
+          {busy && !updateReady ? 'Checking…' : 'Check for updates'}
+        </button>
+        {check?.kind === 'update-available' && (
+          <button class="btn primary" disabled={busy} onClick={install}>
+            {`Update to ${check.version}`}
+          </button>
+        )}
+        {check?.kind === 'web-update-ready' && (
+          <button class="btn primary" disabled={busy} onClick={install}>
+            Reload for the new version
+          </button>
+        )}
+      </div>
+      {pct != null && (
+        <div class="update-progress">
+          <div style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {message && <p class="muted small">{message}</p>}
     </div>
   )
 }

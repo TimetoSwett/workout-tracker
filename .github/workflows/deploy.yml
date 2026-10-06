@@ -23,6 +23,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Pin the version for the bundle so Settings → About names this commit,
+      # and fail rather than shipping the 0.0.0-nogit fallback.
+      - name: Resolve app version
+        run: node scripts/app-version.mjs --check >> "$GITHUB_ENV"
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

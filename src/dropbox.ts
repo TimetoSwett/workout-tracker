@@ -215,7 +215,7 @@ async function authed(run: (token: string) => Promise<Response>): Promise<{ res?
   }
 }
 
-export async function dropboxDownload(path: string = DATA_PATH): Promise<{ content: string | null; error?: string }> {
+export async function dropboxDownload(path: string = DATA_PATH): Promise<{ content: string | null; rev?: string; error?: string }> {
   const { res, error } = await authed((token) =>
     fetch(`${CONTENT_API}/files/download`, {
       method: 'POST',
@@ -223,21 +223,30 @@ export async function dropboxDownload(path: string = DATA_PATH): Promise<{ conte
     }),
   )
   if (error || !res) return { content: null, error }
-  if (res.status === 409) return { content: null } // not there yet — first sync
+  if (res.status === 409) {
+    const detail = await res.text()
+    if (detail.includes('path/not_found')) return { content: null }
+    return { content: null, error: 'Dropbox download conflict: ' + detail.slice(0, 200) }
+  }
   if (!res.ok) {
     if (res.status === 401) return { content: null, error: RECONNECT }
     return { content: null, error: `Download failed (${res.status})` }
   }
-  return { content: await res.text() }
+  let rev: string | undefined
+  try { rev = JSON.parse(res.headers.get('Dropbox-API-Result') ?? '{}').rev } catch { /* checked below */ }
+  if (!rev) return { content: null, error: 'Dropbox did not return a file revision; sync paused.' }
+  return { content: await res.text(), rev }
 }
 
-export async function dropboxUpload(content: string, path: string = DATA_PATH): Promise<string | null> {
+export const REVISION_CONFLICT = 'Dropbox file changed; retry sync.'
+
+export async function dropboxUpload(content: string, path: string = DATA_PATH, revision?: string | null): Promise<string | null> {
   const { res, error } = await authed((token) =>
     fetch(`${CONTENT_API}/files/upload`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'Dropbox-API-Arg': JSON.stringify({ path, mode: 'overwrite', mute: true }),
+        'Dropbox-API-Arg': JSON.stringify({ path, mode: revision === undefined ? 'overwrite' : revision === null ? 'add' : { '.tag': 'update', update: revision }, autorename: false, strict_conflict: true, mute: true }),
         'Content-Type': 'application/octet-stream',
       },
       body: content,
@@ -245,6 +254,7 @@ export async function dropboxUpload(content: string, path: string = DATA_PATH): 
   )
   if (error) return error
   if (!res) return 'Upload failed'
+  if (res.status === 409 && revision !== undefined) return REVISION_CONFLICT
   if (!res.ok) {
     if (res.status === 401) return RECONNECT
     return `Upload failed (${res.status})`
