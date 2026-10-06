@@ -95,8 +95,20 @@ refuse a downgrade — but they do cache.
   neither is at risk from a candidate, and "recovery" for them is just: do not
   merge. As of this writing production serves `2026.10.06.ef8be3e` /
   213457601 — the shipped stable commit.
-- A candidate is reachable only through its own Cloudflare branch preview, on a
-  hostname separate from production.
+- A candidate is reachable only through its own Cloudflare preview, on a hostname
+  separate from production. Workers Builds publishes two forms of that hostname,
+  and the difference matters for QA:
+
+  - `https://<version-prefix>-workout-tracker.tuckerswett.workers.dev` is pinned
+    to one build and never changes. Quote this one in a QA handoff, because the
+    result stays attributable to the commit that was tested.
+  - `https://<branch-name>-workout-tracker.tuckerswett.workers.dev` is an alias
+    that follows the branch head. It is convenient, but a push during QA silently
+    moves it, so a pass recorded against it does not name a commit.
+
+  For the TOM-39 candidate (`9767550`) both currently serve bundle
+  `index-BVy3xiSQ.js` reporting `2026.10.06.9767550` / 213469181; the pinned form
+  is `https://c46ddf0f-workout-tracker.tuckerswett.workers.dev`.
 - If a candidate has been opened in a browser, that origin holds a service worker
   and a cache. To return that browser to stable, clear site data for the preview
   origin (or use the app's own reload path) rather than assuming a refresh is
