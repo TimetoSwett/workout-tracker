@@ -549,7 +549,14 @@ button {
   padding: 10px 20px;
   border-radius: 20px;
   z-index: 60;
-  white-space: nowrap;
+  /* Not every status is short. A Samsung import reports counts, the converted bodyweight and
+     the first file-level complaint in one line, and a failed dynamic import reports a whole
+     module URL. `white-space: nowrap` with no width cap let that run off a 390px screen and
+     clipped the end of the message (TOM-37), so wrap instead; `anywhere` is what lets an
+     unbroken URL break mid-token rather than widen the document. */
+  max-width: calc(100vw - 32px);
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .toast.visible {
@@ -559,6 +566,10 @@ button {
   margin-top: 8px;
   background: var(--card-2);
   color: var(--text);
+  /* In-flow, so the cap is the content column, not the viewport — `main` already has side
+     padding and this sits inside it. */
+  max-width: 100%;
+  text-align: left;
 }
 
 .chart {
