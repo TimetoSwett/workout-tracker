@@ -1,6 +1,9 @@
+import { weightLines } from './legacyWeights'
 import { getState, setHistory, setSettings } from './store'
-import type { Mesocycle, Workout } from './types'
-import { dropboxConfigured, dropboxDownload, dropboxUpload } from './dropbox'
+import type { Mesocycle } from './types'
+import { dropboxConfigured, dropboxDownload, dropboxUpload, REVISION_CONFLICT } from './dropbox'
+import type { WireWorkout } from './weightWire'
+import { decodeWorkout, encodeWorkout, hasUntaggedRecords, LEGACY_UNITS_ERROR } from './weightWire'
 
 const MESO_PATH = '/mesocycles.jsonl'
 
@@ -35,7 +38,7 @@ function merge<T extends { id: string; updatedAt?: number; deleted?: boolean }>(
   const byId = new Map<string, T>()
   for (const item of [...local, ...remote]) {
     const cur = byId.get(item.id)
-    if (!cur || (item.updatedAt ?? 0) > (cur.updatedAt ?? 0)) byId.set(item.id, item)
+    if (!cur || (item.updatedAt ?? 0) >= (cur.updatedAt ?? 0)) byId.set(item.id, item)
   }
   const merged = [...byId.values()].sort((a, b) => sortKey(a) - sortKey(b))
   const changedRemote =
@@ -53,30 +56,46 @@ export async function sync(): Promise<string | null> {
   if (syncing) return null
   const { settings, workouts, mesocycles } = getState()
   if (!dropboxConfigured(settings)) return 'Dropbox is not connected'
+  const localChanged = () => getState().settings.units !== settings.units || getState().workouts !== workouts || getState().mesocycles !== mesocycles
   syncing = true
   try {
-    const [remoteWorkoutsRes, remoteMesosRes] = await Promise.all([
-      dropboxDownload(),
-      dropboxDownload(MESO_PATH),
-    ])
-    if (remoteWorkoutsRes.error) return remoteWorkoutsRes.error
-    if (remoteMesosRes.error) return remoteMesosRes.error
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [remoteWorkoutsRes, remoteMesosRes] = await Promise.all([
+        dropboxDownload(),
+        dropboxDownload(MESO_PATH),
+      ])
+      if (remoteWorkoutsRes.error) return remoteWorkoutsRes.error
+      if (remoteMesosRes.error) return remoteMesosRes.error
 
-    const remoteWorkouts = remoteWorkoutsRes.content ? parseJsonl<Workout>(remoteWorkoutsRes.content) : []
-    const remoteMesos = remoteMesosRes.content ? parseJsonl<Mesocycle>(remoteMesosRes.content) : []
+      // Merge tagged wire records first, retaining original precision on remote ties.
+      const wireWorkouts = remoteWorkoutsRes.content ? weightLines(remoteWorkoutsRes.content).map(({ record }) => record as unknown as WireWorkout) : []
+      if (hasUntaggedRecords(wireWorkouts)) return LEGACY_UNITS_ERROR
+      const remoteWorkouts = wireWorkouts
+      const remoteMesos = remoteMesosRes.content ? parseJsonl<Mesocycle>(remoteMesosRes.content) : []
 
-    const { merged: mergedWorkouts, changedRemote: workoutsChanged } = merge(workouts, remoteWorkouts, (w) => w.startedAt)
-    const { merged: mergedMesos, changedRemote: mesosChanged } = merge(mesocycles, remoteMesos, (m) => m.createdAt)
+      const { merged: mergedWorkouts, changedRemote: workoutsChanged } = merge(workouts.map((w) => encodeWorkout(w, settings.units)), remoteWorkouts, (w) => w.startedAt)
+      const { merged: mergedMesos, changedRemote: mesosChanged } = merge(mesocycles, remoteMesos, (m) => m.createdAt)
 
-    const uploads: Promise<string | null>[] = []
-    if (workoutsChanged) uploads.push(dropboxUpload(toJsonl(mergedWorkouts)))
-    if (mesosChanged) uploads.push(dropboxUpload(toJsonl(mergedMesos), MESO_PATH))
-    const errs = (await Promise.all(uploads)).filter((e): e is string => !!e)
-    if (errs.length) return errs[0]
+      // Validate before uploading and never overwrite edits made while a request awaited.
+      const decoded = mergedWorkouts.map((w) => decodeWorkout(w, settings.units))
+      if (localChanged()) return 'Local data changed during sync; sync again.'
+      const uploads: Promise<string | null>[] = []
+      if (workoutsChanged) {
+        uploads.push(dropboxUpload(toJsonl(mergedWorkouts), undefined, remoteWorkoutsRes.rev ?? null))
+      }
+      if (mesosChanged) uploads.push(dropboxUpload(toJsonl(mergedMesos), MESO_PATH, remoteMesosRes.rev ?? null))
+      const errs = (await Promise.all(uploads)).filter((e): e is string => !!e)
+      if (errs.includes(REVISION_CONFLICT)) continue
+      if (errs.length) return errs[0]
 
-    setHistory(mergedWorkouts, mergedMesos)
-    setSettings({ ...settings, lastSyncAt: Date.now() })
-    return null
+      if (localChanged()) return 'Local data changed during sync; sync again.'
+      setHistory(decoded, mergedMesos)
+      setSettings({ ...getState().settings, lastSyncAt: Date.now() })
+      return null
+    }
+    return REVISION_CONFLICT
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e)
   } finally {
     syncing = false
   }

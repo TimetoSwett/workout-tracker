@@ -13,7 +13,15 @@ export function kgToUnits(kg: number, appUnits: Units): number {
  *  them; see `convertStoredWeights`. */
 export function convertWeight(v: number, from: Units, to: Units, decimals = 1): number {
   if (from === to) return v
-  const kg = from === 'kg' ? v : v / KG_TO_LB
   const p = 10 ** decimals
-  return Math.round((to === 'kg' ? kg : kg * KG_TO_LB) * p) / p
+  return Math.round(convertWeightExact(v, from, to) * p) / p
+}
+
+/** Unrounded conversion, for the sync wire format. Rounding on the way out would
+ *  compound: a device that rounds to 0.1 on upload and the receiver that rounds again on
+ *  download would walk a weight a little further every round trip. Keeping the wire value
+ *  exact makes `local -> wire -> local` return the number the board actually typed. */
+export function convertWeightExact(v: number, from: Units, to: Units): number {
+  if (from === to) return v
+  return from === 'kg' ? v * KG_TO_LB : v / KG_TO_LB
 }
