@@ -323,7 +323,18 @@ export function LogView() {
   }
 
   return (
-    <div class="view cols">
+    <div class="active-log">
+      {restLeft > 0 && active?.restEndsAt && (
+        <RestTimer
+          secondsLeft={restLeft}
+          total={active.restTotal ?? settings.restSeconds}
+          onAdd={(s) =>
+            patch((a) => ({ ...a, restEndsAt: (a.restEndsAt ?? Date.now()) + s * 1000, restTotal: (a.restTotal ?? 0) + s }))
+          }
+          onStop={() => patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))}
+        />
+      )}
+    <div class="view log-scroll">
       <div class="log-header">
         <div>
           <div class="log-title">{active.name ?? 'Workout'}</div>
@@ -454,18 +465,7 @@ export function LogView() {
           </button>
         )}
       </div>
-
-      {restLeft > 0 && active?.restEndsAt && (
-        <RestTimer
-          secondsLeft={restLeft}
-          total={active.restTotal ?? settings.restSeconds}
-          onAdd={(s) =>
-            patch((a) => ({ ...a, restEndsAt: (a.restEndsAt ?? Date.now()) + s * 1000, restTotal: (a.restTotal ?? 0) + s }))
-          }
-          onStop={() => patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))}
-        />
-      )}
-
+    </div>
       {picker != null && <ExercisePicker onPick={pickExercise} onClose={() => setPicker(null)} />}
       {toast && <div class="toast">{toast}</div>}
     </div>

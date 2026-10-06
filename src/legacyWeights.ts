@@ -52,6 +52,10 @@ export async function migrateLegacyFile(file: LegacyFile, declarations: Declarat
     backup = `${file.path}.before-units-${crypto.randomUUID()}.jsonl`
     const backupError = await dropboxUpload(current.content, backup, null)
     if (backupError) throw new Error(`Backup failed; original file unchanged. ${backupError}`)
+    const recovered = await dropboxDownload(backup)
+    if (recovered.error || recovered.content !== current.content) {
+      throw new Error(`Backup recovery verification failed; original file unchanged. Raw backup: ${backup}`)
+    }
     const error = await dropboxUpload(tagged, file.path, current.rev)
     if (!error) return backup
     if (error !== REVISION_CONFLICT) throw new Error(`${error} Raw backup: ${backup}`)

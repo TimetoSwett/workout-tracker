@@ -1,4 +1,4 @@
-import { useEffect } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
 
 interface Props {
   secondsLeft: number
@@ -8,6 +8,7 @@ interface Props {
 }
 
 export function RestTimer({ secondsLeft, total, onAdd, onStop }: Props) {
+  const [collapsed, setCollapsed] = useState(true)
   const pct = total > 0 ? (secondsLeft / total) * 100 : 0
   const mm = Math.floor(secondsLeft / 60)
   const ss = secondsLeft % 60
@@ -19,27 +20,32 @@ export function RestTimer({ secondsLeft, total, onAdd, onStop }: Props) {
 
   return (
     <div class={`rest-timer ${secondsLeft === 0 ? 'done' : ''}`}>
-      <div class="rest-label">{secondsLeft === 0 ? 'Rest complete 💪' : 'Rest'}</div>
-      <div class="rest-time">{time}</div>
-      <div class="rest-bar">
-        <div class="rest-fill" style={{ width: `${secondsLeft === 0 ? 100 : pct}%` }} />
+      <div class="rest-summary">
+        <div class="rest-label">{secondsLeft === 0 ? 'Rest complete 💪' : 'Rest'}</div>
+        <div class="rest-time">{time}</div>
+        <button class="btn small" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? 'Show controls' : 'Hide controls'}</button>
       </div>
-      <div class="rest-actions">
-        {secondsLeft > 0 ? (
-          <>
-            <button class="btn small" onClick={() => onAdd(30)}>
-              +30s
+      {!collapsed && <>
+        <div class="rest-bar">
+          <div class="rest-fill" style={{ width: `${secondsLeft === 0 ? 100 : pct}%` }} />
+        </div>
+        <div class="rest-actions">
+          {secondsLeft > 0 ? (
+            <>
+              <button class="btn small" onClick={() => onAdd(30)}>
+                +30s
+              </button>
+              <button class="btn small danger" onClick={onStop}>
+                Skip
+              </button>
+            </>
+          ) : (
+            <button class="btn small" onClick={onStop}>
+              Dismiss
             </button>
-            <button class="btn small danger" onClick={onStop}>
-              Skip
-            </button>
-          </>
-        ) : (
-          <button class="btn small" onClick={onStop}>
-            Dismiss
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      </>}
     </div>
   )
 }

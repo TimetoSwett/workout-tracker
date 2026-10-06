@@ -570,7 +570,7 @@ export function SettingsView() {
 }
 
 /** Answers "am I on the fix?" without guessing, and lets the board force an update check instead
- *  of waiting for the throttled launch one (TOM-2). APP_VERSION comes from package.json via a
+ *  of waiting for the throttled launch one (TOM-2). APP_VERSION comes from the commit/tag via a
  *  Vite define, and android/app/build.gradle derives versionName from the same value, so this
  *  string is the version of the artifact rather than a hand-maintained copy of it. */
 function AboutCard() {

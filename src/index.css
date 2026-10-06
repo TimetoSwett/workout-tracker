@@ -496,17 +496,12 @@ button {
 }
 
 .rest-timer {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(72px + env(safe-area-inset-bottom));
-  width: calc(100% - 28px);
-  max-width: 492px;
+  flex: none;
+  width: 100%;
   background: var(--card);
   border: 1px solid var(--accent-dim);
   border-radius: var(--radius);
   padding: 12px 16px;
-  z-index: 40;
   text-align: center;
 }
 
@@ -1150,3 +1145,17 @@ code {
   background: var(--accent);
   transition: width 0.2s linear;
 }
+
+/* Reserve timer space outside the scrolling set editor. No overlay or sticky
+   element can cover focused fields, including when the viewport shrinks. */
+.app.logging { height: 100dvh; min-height: 0; }
+.logging main { display: flex; flex-direction: column; min-height: 0; }
+.active-log { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; }
+.log-scroll { overflow-y: auto; min-height: 0; padding-bottom: 12px; }
+.active-log .rest-timer { max-width: none; padding: 8px; }
+.rest-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rest-summary .rest-time { font-size: 1.25rem; }
+.rest-summary button { flex-shrink: 0; }
+
+.logging .tabbar { position: static; transform: none; flex: none; }
+.logging main { padding-bottom: 12px; overflow: auto; }

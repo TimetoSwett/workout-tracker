@@ -24,7 +24,17 @@ const DEFAULT_TAB: Tab = 'log'
 export function App() {
   const [tab, setTab] = useState<Tab>(DEFAULT_TAB)
   const [coachIntent, setCoachIntent] = useState<CoachIntent | null>(null)
-  const { settings } = useStore()
+  const { settings, active } = useStore()
+  const [viewportHeight, setViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight)
+  useEffect(() => {
+    const update = () => setViewportHeight(window.visualViewport?.height ?? window.innerHeight)
+    window.visualViewport?.addEventListener('resize', update)
+    window.addEventListener('resize', update)
+    return () => {
+      window.visualViewport?.removeEventListener('resize', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [])
   const tabRef = useRef(tab)
   tabRef.current = tab
 
@@ -58,7 +68,7 @@ export function App() {
   }, [])
 
   return (
-    <div class="app">
+    <div class={`app ${tab === 'log' && active ? 'logging' : ''}`} style={tab === 'log' && active ? { height: `${viewportHeight}px` } : undefined}>
       <main>
         <UpdateBanner />
         {tab === 'log' && <LogView />}
