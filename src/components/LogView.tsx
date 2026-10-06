@@ -324,16 +324,16 @@ export function LogView() {
 
   return (
     <div class="active-log">
-      {restLeft > 0 && active?.restEndsAt && (
-        <RestTimer
-          secondsLeft={restLeft}
-          total={active.restTotal ?? settings.restSeconds}
-          onAdd={(s) =>
-            patch((a) => ({ ...a, restEndsAt: (a.restEndsAt ?? Date.now()) + s * 1000, restTotal: (a.restTotal ?? 0) + s }))
-          }
-          onStop={() => patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))}
-        />
-      )}
+      {/* Rendered unconditionally: `restLeft` is already 0 when no rest is running, and the
+          strip keeps its height in that state so starting or ending rest moves nothing. */}
+      <RestTimer
+        secondsLeft={restLeft}
+        total={active.restTotal ?? settings.restSeconds}
+        onAdd={(s) =>
+          patch((a) => ({ ...a, restEndsAt: (a.restEndsAt ?? Date.now()) + s * 1000, restTotal: (a.restTotal ?? 0) + s }))
+        }
+        onStop={() => patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))}
+      />
     <div class="view log-scroll">
       <div class="log-header">
         <div>

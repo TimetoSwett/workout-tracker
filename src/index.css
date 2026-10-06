@@ -505,19 +505,11 @@ button {
   text-align: center;
 }
 
-.rest-timer.done {
-  border-color: var(--accent);
-}
-
 .rest-label {
   font-size: 0.72rem;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-}
-
-.rest-timer.done .rest-label {
-  color: var(--accent);
 }
 
 .rest-time {
@@ -527,16 +519,12 @@ button {
   margin: 2px 0;
 }
 
-.rest-timer.done .rest-time {
-  color: var(--accent);
-}
-
 .rest-bar {
   height: 4px;
   background: var(--card-2);
   border-radius: 2px;
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-top: 6px;
 }
 
 .rest-fill {
@@ -1155,6 +1143,7 @@ code {
 .active-log .rest-timer { max-width: none; padding: 8px; }
 .rest-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rest-summary .rest-time { font-size: 1.25rem; }
+.rest-summary .rest-actions { flex: none; }
 .rest-summary button { flex-shrink: 0; }
 
 .logging .tabbar { position: static; transform: none; flex: none; }
