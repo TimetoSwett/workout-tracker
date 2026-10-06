@@ -39,7 +39,9 @@ export function LogView() {
   useEffect(() => {
     if (restLeft === 0 && active?.restEndsAt) {
       if ('vibrate' in navigator) navigator.vibrate?.(400)
-      patch((a) => ({ ...a, restEndsAt: undefined }))
+      // Clear both halves of the timer, as Skip does. Leaving `restTotal` behind was harmless
+      // — the next completed set overwrites it — but it left a stored total with no deadline.
+      patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))
     }
   }, [restLeft])
 

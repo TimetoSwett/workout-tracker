@@ -505,10 +505,6 @@ button {
   text-align: center;
 }
 
-.rest-timer.done {
-  border-color: var(--accent);
-}
-
 .rest-label {
   font-size: 0.72rem;
   color: var(--muted);
@@ -516,19 +512,11 @@ button {
   letter-spacing: 0.1em;
 }
 
-.rest-timer.done .rest-label {
-  color: var(--accent);
-}
-
 .rest-time {
   font-size: 2rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   margin: 2px 0;
-}
-
-.rest-timer.done .rest-time {
-  color: var(--accent);
 }
 
 .rest-bar {

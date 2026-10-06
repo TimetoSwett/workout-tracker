@@ -266,8 +266,9 @@ async function main() {
         kgAlert.some((x) => /contains explicit kg labels/.test(x)), kgAlert.join(' | ').slice(0, 160))
       record(vp.name, 'B: the notice promises the kg labels will not be overwritten',
         kgAlert.some((x) => /will not be overwritten/.test(x)), '')
-      record(vp.name, 'B: only the untagged record is listed as unresolved',
-        t.some((x) => /1 unresolved records/.test(x)) && (await ev(`document.querySelectorAll('details select').length`)) === 1,
+      // Singular, deliberately: a one-record file used to read "1 unresolved records" (TOM-62 D4).
+      record(vp.name, 'B: only the untagged record is listed as unresolved, in the singular',
+        t.some((x) => /\b1 unresolved record\b/.test(x)) && (await ev(`document.querySelectorAll('details select').length`)) === 1,
         t.find((x) => /unresolved/.test(x)) ?? '')
       await shot('B-kg-conflict')
       await clickBulkPounds(); await sleep(200); await clickSave()
