@@ -267,7 +267,13 @@ other with no uninstall and no data loss — but only in this direction, because
 | Settings → About reads | `2026.10.07.c602979` | `2026.10.07.53ef15c` |
 | APK artifact | `workout-tracker-2026.10.07.c602979-213494693-release` | `workout-tracker-2026.10.07.53ef15c-213529619-release` |
 | From run | [37550056265](https://github.com/TimetoSwett/workout-tracker/actions/runs/37550056265) | [37602996629](https://github.com/TimetoSwett/workout-tracker/actions/runs/37602996629) |
+| `versionCode` | 213494693 | 213529619 |
+| APK SHA-256 | `e3511ba660773c9fee5b0ed4d6e5e33b307d9b10147e76f715fac50103df379e` | `79e68c14913b2346572c1611d379b27f9f70c4d7128bbcdddb0670aff918b75f` |
+| Bundled web asset | `assets/index-yeZO2pgu.js` | `assets/index-CZRxuw5w.js` |
 | Web preview | `https://preview-c602979-workout-tracker.tuckerswett.workers.dev` | `https://release-tom67-recovery-v030-workout-tracker.tuckerswett.workers.dev` |
+
+Each APK's bundle filename is the same one its preview URL serves, so the web
+build QA ran against and the Android build the board installs are the same code.
 
 Run `node scripts/apk-identity.mjs` on the downloaded file before installing
 either one; that is what rules out the one failure mode that costs data.
