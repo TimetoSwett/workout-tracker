@@ -202,8 +202,8 @@ async function main() {
         await run(`(()=>{let s=JSON.parse(localStorage.getItem('wt.active.v1'));s.active.exercises[0].sets=Array.from({length:12},()=>({weight:135,reps:8,done:false}));localStorage.setItem('wt.active.v1',JSON.stringify(s))})()`)
         await dt.send('Page.navigate', {url:base})
         await waitFor('log',async()=>await run(`!!document.querySelector('.active-log .set-row .icon-btn')`))
-        if (mode !== 'supported') await run(`Object.defineProperty(window,'AudioContext',{configurable:true,value:undefined});Object.defineProperty(window,'webkitAudioContext',{configurable:true,value:undefined})`)
-        if (mode === 'unsupported') await run(`Object.defineProperty(navigator,'vibrate',{configurable:true,value:undefined})`)
+        if (mode !== 'supported') await run(`Object.defineProperty(window,'AudioContext',{configurable:true,value:undefined});Object.defineProperty(window,'webkitAudioContext',{configurable:true,value:undefined});void 0`)
+        if (mode === 'unsupported') await run(`Object.defineProperty(navigator,'vibrate',{configurable:true,value:undefined});void 0`)
         await completeSet(0)
         await run(`(()=>{let f=document.querySelectorAll('.set-row:not(.set-labels) input')[8];f.focus();f.scrollIntoView({block:'center'})})()`)
         const measure = () => run(`(()=>{
