@@ -209,6 +209,10 @@ async function main() {
     const restTime = () => run(`document.querySelector('.rest-time')?.textContent ?? null`)
     const completeSet = (row) =>
       tap(`document.querySelectorAll('.exercise-card')[0].querySelectorAll('.set-row:not(.set-labels)')[${row}].querySelector('.icon-btn').click()`)
+    const openTab = (label) =>
+      tap(`[...document.querySelectorAll('.tabbar button')].find(b => b.textContent.trim().endsWith(${JSON.stringify(label)})).click()`)
+    const restStatusText = () => run(`document.querySelector('.rest-status')?.textContent?.trim() ?? null`)
+    const storedDeadline = () => run(`JSON.parse(localStorage.getItem('wt.active.v1')).active.restEndsAt ?? null`)
 
     await dt.send('Page.navigate', { url: base })
     await waitFor('first paint', async () => await run(`!!document.querySelector('.app')`))
@@ -291,6 +295,82 @@ async function main() {
     }
     record('expiry clears the deadline without unmounting the strip',
       await run(`JSON.parse(localStorage.getItem('wt.active.v1')).active.restEndsAt == null && !!document.querySelector('.rest-timer')`), '')
+
+    // --- The TOM-72 failure: the app stays in the foreground, but the user is looking at
+    // --- another tab when the rest runs out. `app.tsx` unmounts `LogView` on navigation, so
+    // --- an expiry owned by that component's interval could not fire at all — it fired on the
+    // --- return to Log instead, which is the one moment the user can already see it is done.
+    for (const tabName of ['History', 'Settings']) {
+      console.log(`\n=== Expiry while the ${tabName} tab is visible ===`)
+      await run(SEED(4, null))
+      await dt.send('Page.navigate', { url: base })
+      await waitFor('active log', async () => await run(`!!document.querySelector('.active-log .set-row .icon-btn')`))
+      await resetCounts()
+
+      await completeSet(0)
+      await waitFor('rest running', async () => (await restTime()) !== '—')
+      await openTab(tabName)
+      await waitFor(`${tabName} mounted`, async () => await run(`!document.querySelector('.active-log')`))
+      record(`the Log tab really is unmounted on ${tabName}`,
+        (await run(`!document.querySelector('.rest-timer')`)) === true, 'no .rest-timer in the DOM')
+
+      // Through the deadline and two seconds past it, never leaving this tab.
+      const deadline = await storedDeadline()
+      await waitFor('the deadline to pass', async () => Date.now() > deadline + 2_000, 12_000)
+      const awayCounts = await counts()
+      record(`expiry alerts while ${tabName} is visible`, awayCounts.vibes === 1, `${awayCounts.vibes} vibration(s)`)
+      if (NOTES_PER_CHIME > 0) {
+        record(`expiry chimes while ${tabName} is visible`, awayCounts.oscStarts === NOTES_PER_CHIME,
+          `${awayCounts.oscStarts} oscillator(s), one chime is ${NOTES_PER_CHIME}`)
+      }
+      record(`the deadline is cleared while ${tabName} is visible`, (await storedDeadline()) === null,
+        JSON.stringify(await storedDeadline()))
+
+      await openTab('Log')
+      await waitFor('back on the Log tab', async () => await run(`!!document.querySelector('.active-log')`))
+      await sleep(1_500)
+      const backCounts = await counts()
+      record(`returning to Log does not alert again (from ${tabName})`,
+        backCounts.vibes === awayCounts.vibes && backCounts.oscStarts === awayCounts.oscStarts,
+        `${backCounts.vibes - awayCounts.vibes} extra vibration(s), ${backCounts.oscStarts - awayCounts.oscStarts} extra oscillator(s)`)
+      record(`the rest-done line survives the trip through ${tabName}`,
+        /Rest done/.test((await restStatusText()) ?? ''), JSON.stringify(await restStatusText()))
+      record(`the timer is idle again after returning from ${tabName}`, (await restTime()) === '—', `shows ${await restTime()}`)
+
+      // A fresh rest must replace the old line rather than leaving it to contradict a
+      // running countdown.
+      await completeSet(1)
+      await waitFor('next rest running', async () => (await restTime()) !== '—')
+      record(`a new rest clears the previous rest-done line (after ${tabName})`,
+        !/Rest done/.test((await restStatusText()) ?? ''), JSON.stringify(await restStatusText()))
+    }
+
+    // --- A deadline that has only just passed when the app opens. The watcher alerts here on
+    // --- purpose: inside the grace window the rest really did just end, and a cold launch
+    // --- mid-rest is an ordinary outcome of Android reclaiming the WebView. But the chime is
+    // --- blocked by construction in a brand-new document — no gesture has unlocked the
+    // --- AudioContext — so the visible line is the only channel that can be relied on, and
+    // --- QA measured it missing on 83c738e: the 0ms timeout fired between LogView's render
+    // --- and its subscription, so the recorded outcome reached no listener at all.
+    for (const agoMs of [2_000, 20_000]) {
+      console.log(`\n=== Opening on a deadline ${agoMs / 1000}s past ===`)
+      await run(SEED(90, Date.now() - agoMs))
+      await dt.send('Page.navigate', { url: base })
+      await waitFor('active log reloaded', async () => await run(`!!document.querySelector('.active-log .set-row .icon-btn')`))
+      await sleep(1_500)
+      const onOpen = await counts()
+      record(`opening ${agoMs / 1000}s past the deadline alerts once`, onOpen.vibes === 1, `${onOpen.vibes} vibration(s)`)
+      const openLine = (await restStatusText()) ?? ''
+      record(`the buzz on open comes with a visible line (${agoMs / 1000}s past)`,
+        /Rest done/.test(openLine), JSON.stringify(openLine))
+      // Nothing has been tapped in this document, so the chime cannot have played. The line
+      // has to say so rather than implying a sound the board never heard.
+      record(`the line on open does not claim a chime that was blocked (${agoMs / 1000}s past)`,
+        onOpen.oscStarts > 0 ? !/no sound/.test(openLine) : /no sound/.test(openLine),
+        `${onOpen.oscStarts} oscillator(s), line ${JSON.stringify(openLine)}`)
+      record(`the deadline is cleared on open (${agoMs / 1000}s past)`, (await storedDeadline()) === null,
+        JSON.stringify(await storedDeadline()))
+    }
 
     // --- A deadline that passed while the app was closed must be cleaned up in silence.
     console.log('\n=== Reopening on an expired rest ===')
