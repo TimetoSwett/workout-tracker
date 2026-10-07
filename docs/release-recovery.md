@@ -29,15 +29,17 @@ The two ways past that are:
 This is the part that bites. A recovery build is a *new commit* of v0.3.0's
 tree, so its `versionCode` is fixed the moment it is created. Any candidate
 committed **after** it outranks it, and it stops being a recovery path. That has
-already happened once:
+already happened twice:
 
 | Build | Commit | versionName | versionCode | Status |
 | --- | --- | --- | --- | --- |
 | Shipped stable (release `v0.3.0` asset) | `ef8be3e` | `0.3.0` | 213457601 | current stable |
 | TOM-39 candidate #1 | `9767550` | `2026.10.06.9767550` | 213469181 | **failed QA — do not promote** |
 | Recovery build for candidate #1 | `9e16fb3` | `2026.10.06.9e16fb3` | 213472506 | **superseded** — lower than candidate #2 |
-| TOM-39 candidate #2 (corrected) | `f836d1e` | `2026.10.06.f836d1e` | 213493055 | candidate under QA |
-| Recovery build for candidate #2 | `8ea4b75` | `2026.10.06.8ea4b75` | 213493432 | **current recovery path** |
+| TOM-39 candidate #2 (corrected) | `f836d1e` | `2026.10.06.f836d1e` | 213493055 | **superseded** — conditional pass with a landscape regression |
+| Recovery build for candidate #2 | `8ea4b75` | `2026.10.06.8ea4b75` | 213493432 | **superseded** — lower than candidate #3 |
+| TOM-39 candidate #3 (+ TOM-62) | `c602979` | `2026.10.07.c602979` | 213494693 | candidate under QA |
+| Recovery build for candidate #3 | `53ef15c` | `2026.10.07.53ef15c` | 213529619 | **current recovery path** |
 
 Re-running the workflow on the old recovery commit cannot fix this: the same
 commit always mints the same number. It takes a new commit. So:
@@ -47,9 +49,12 @@ commit always mints the same number. It takes a new commit. So:
 
 ## The current recovery build
 
-Branch `release/tom65-recovery-v030`, commit `8ea4b75`, `versionCode` 213493432.
+Branch `release/tom67-recovery-v030`, commit `53ef15c`, `versionCode` 213529619.
+Built by run
+[37602996629](https://github.com/TimetoSwett/workout-tracker/actions/runs/37602996629);
+artifact `workout-tracker-2026.10.07.53ef15c-213529619-release`.
 
-Its tree is byte-identical to the `v0.3.0` tag — `git diff v0.3.0 8ea4b75` is
+Its tree is byte-identical to the `v0.3.0` tag — `git diff v0.3.0 53ef15c` is
 empty — so it behaves exactly like the shipped stable build. The only difference
 is the committer date, which is all `app-version.mjs` needs to mint a higher
 `versionCode`. The normal `android-apk.yml` workflow builds it, so it is signed
@@ -59,13 +64,13 @@ touching app data.
 That it really is the same app is checkable on the artifacts themselves and not
 only in the commit. Of the 426 entries in the APK outside `assets/public/` and
 `META-INF/` — `classes.dex`, the native libraries, `resources.arsc`, every
-resource — all 426 are byte-identical to the shipped `v0.3.0` release asset. The
+resource — 425 are byte-identical to the shipped `v0.3.0` release asset. The
 only one that differs is `AndroidManifest.xml`, which is where `versionCode` and
 `versionName` live. The web payload differs only in the version string that is
 compiled into the bundle, the content-hash filenames that follow from it, and one
 minifier identifier rename inside the Workbox loader shim in `sw.js`.
 
-It reports `2026.10.06.8ea4b75` in Settings → About, not `0.3.0`, because the
+It reports `2026.10.07.53ef15c` in Settings → About, not `0.3.0`, because the
 version string names the commit that was built and this is not the tag. Same
 code, different label. See "Two labels for one commit" below.
 
@@ -184,25 +189,41 @@ refuse a downgrade — but they do cache.
   ```
 
   That alias is pinned by construction, because the branch has nowhere to move.
-  For the corrected TOM-39 candidate it is
-  `https://preview-f836d1e-workout-tracker.tuckerswett.workers.dev`, serving
-  bundle `assets/index-GLnAdP6P.js` and reporting `2026.10.06.f836d1e` /
-  213493055 — the same bundle filename the `f836d1e` APK carries, so the web and
-  Android artifacts under QA are the same code.
+  The current candidate's is
+  `https://preview-c602979-workout-tracker.tuckerswett.workers.dev`, serving
+  bundle `assets/index-yeZO2pgu.js` and reporting `2026.10.07.c602979` /
+  213494693 — the same bundle filename the `c602979` APK carries, so the web and
+  Android artifacts under QA are the same code. The previous candidate's pin,
+  `https://preview-f836d1e-workout-tracker.tuckerswett.workers.dev`
+  (`assets/index-GLnAdP6P.js`, `2026.10.06.f836d1e`), still stands and still
+  serves `f836d1e`, so the two candidates stay distinguishable by URL.
 
   A QA harness should still read the running build's own version out of
   Settings → About and refuse to continue unless it is the expected commit (see
   `tests/tom61-preview-verify.qa.mjs`). A URL is a convenience; the self-reported
   version is the attribution.
 - The v0.3.0 code is on the web too, at the recovery branch's own preview —
-  `https://release-tom65-recovery-v030-workout-tracker.tuckerswett.workers.dev`
-  (bundle `assets/index-BPdn-VCa.js`). That is the web counterpart of the
-  recovery APK: known-good behaviour on a preview origin, without touching
+  `https://release-tom67-recovery-v030-workout-tracker.tuckerswett.workers.dev`
+  (bundle `assets/index-CZRxuw5w.js`, reporting `2026.10.07.53ef15c`). That is
+  the web counterpart of the recovery APK — same bundle filename the recovery
+  APK carries: known-good behaviour on a preview origin, without touching
   production.
 - If a candidate has been opened in a browser, that origin holds a service worker
   and a cache. To return that browser to stable, clear site data for the preview
   origin (or use the app's own reload path) rather than assuming a refresh is
   enough. Production is a different origin and is unaffected either way.
+
+  TOM-63 proved the old-worker-to-candidate transition — install an older
+  bundle, update through the app's own UI, land on the candidate's assets with no
+  stale worker left waiting and synthetic state retained — against commit
+  `9767550`. That proof carries forward to `c602979` without a retest, and the
+  reason is checkable rather than assumed: every file in the update and
+  service-worker pipeline is byte-identical between the two commits.
+  `git diff --name-only 9767550 c602979 -- src/webUpdate.ts src/main.tsx
+  src/version.ts vite.config.ts public/ capacitor.config.ts android/ scripts/`
+  is empty, so the three candidates differ only in view code and CSS. If a later
+  candidate touches any of those paths, the proof lapses and TOM-63 has to be
+  re-run.
 
 Local data lives in that origin's storage, so a preview origin and production do
 not share workout data. Export before relying on either.
@@ -216,9 +237,16 @@ mistake.
   merge.** Superseded by `f836d1e`. Its artifact
   (`workout-tracker-2026.10.06.9767550-213469181-release`) and its recovery build
   `9e16fb3` are retained for the record only.
-- `f836d1e` — TOM-39 candidate #2, the correction. Under independent QA (TOM-64).
-  Not promoted: promotion needs the QA verdict and the board's hands-on
-  acceptance.
+- `f836d1e` — TOM-39 candidate #2, the correction. **Superseded by `c602979`. Do
+  not promote, tag or merge.** TOM-64 returned a *conditional* pass with a
+  landscape regression, which is not a promotion. Its artifact
+  (`workout-tracker-2026.10.06.f836d1e-213493055-release`), its pinned preview and
+  its recovery build `8ea4b75` are retained for the record only. The board may
+  already have this build installed; `53ef15c` is the way back off it.
+- `c602979` — TOM-39 candidate #3, carrying the TOM-62 focus-reveal and `.compact`
+  work plus three fixes from the TOM-64 verdict. Under independent QA (TOM-66).
+  Not promoted: promotion needs the QA verdict, real-data backup/recovery
+  evidence and the board's hands-on acceptance.
 
 Nothing here has been merged to `main` or tagged. Tagging is the board's call.
 
