@@ -38,7 +38,7 @@ already happened twice:
 | Recovery build for candidate #1 | `9e16fb3` | `2026.10.06.9e16fb3` | 213472506 | **superseded** — lower than candidate #2 |
 | TOM-39 candidate #2 (corrected) | `f836d1e` | `2026.10.06.f836d1e` | 213493055 | **superseded** — conditional pass with a landscape regression |
 | Recovery build for candidate #2 | `8ea4b75` | `2026.10.06.8ea4b75` | 213493432 | **superseded** — lower than candidate #3 |
-| TOM-39 candidate #3 (+ TOM-62) | `c602979` | `2026.10.07.c602979` | 213494693 | candidate under QA |
+| TOM-39 candidate #3 (+ TOM-62) | `c602979` | `2026.10.07.c602979` | 213494693 | **current candidate — QA passed (TOM-66)** |
 | Recovery build for candidate #3 | `53ef15c` | `2026.10.07.53ef15c` | 213529619 | **current recovery path** |
 
 Re-running the workflow on the old recovery commit cannot fix this: the same
@@ -244,11 +244,58 @@ mistake.
   its recovery build `8ea4b75` are retained for the record only. The board may
   already have this build installed; `53ef15c` is the way back off it.
 - `c602979` — TOM-39 candidate #3, carrying the TOM-62 focus-reveal and `.compact`
-  work plus three fixes from the TOM-64 verdict. Under independent QA (TOM-66).
-  Not promoted: promotion needs the QA verdict, real-data backup/recovery
-  evidence and the board's hands-on acceptance.
+  work plus three fixes from the TOM-64 verdict. **Independent QA passed (TOM-66,
+  merge recommendation go)** — a clean pass, not a conditional one. Still not
+  promoted: promotion needs real-data backup/recovery evidence and the board's
+  hands-on acceptance (TOM-42). See "Handing `c602979` to the board" below.
 
 Nothing here has been merged to `main` or tagged. Tagging is the board's call.
+
+## Handing `c602979` to the board
+
+Everything that could be checked without the phone has been. What is left is the
+part that needs a physical soft keyboard, and it is two taps' worth of work.
+
+**The pair of artifacts.** Install the candidate, keep the recovery build to
+hand. Both are release-signed with the same key, so either installs over the
+other with no uninstall and no data loss — but only in this direction, because
+213529619 > 213494693.
+
+| | Candidate | Way back off it |
+| --- | --- | --- |
+| Commit | `c602979` | `53ef15c` (v0.3.0's tree) |
+| Settings → About reads | `2026.10.07.c602979` | `2026.10.07.53ef15c` |
+| APK artifact | `workout-tracker-2026.10.07.c602979-213494693-release` | `workout-tracker-2026.10.07.53ef15c-213529619-release` |
+| From run | [37550056265](https://github.com/TimetoSwett/workout-tracker/actions/runs/37550056265) | [37602996629](https://github.com/TimetoSwett/workout-tracker/actions/runs/37602996629) |
+| Web preview | `https://preview-c602979-workout-tracker.tuckerswett.workers.dev` | `https://release-tom67-recovery-v030-workout-tracker.tuckerswett.workers.dev` |
+
+Run `node scripts/apk-identity.mjs` on the downloaded file before installing
+either one; that is what rules out the one failure mode that costs data.
+
+### The acceptance checks that need the phone
+
+This is the entire device-side residue of TOM-66. The risk behind both steps is
+the same one a desktop browser cannot reproduce: a physical soft keyboard may
+*pan* the WebView instead of resizing the visual viewport, and in that case
+`revealFocusedField()` never fires at all.
+
+1. Start any workout, rotate to **landscape**, tap a weight field low in the
+   list. *Expect:* the field you tapped stays visible above the keyboard; the
+   rest timer stays a thin strip at the top; nothing jumps when rest starts or
+   ends.
+2. Still in landscape with the keyboard up, tap **Skip**. *Expect:* the strip
+   stays put and goes grey; the set rows do not move.
+
+### Known limitation shipping with this candidate
+
+- **TOM-69 — no selected-tab indicator in the compact log layout.** When the
+  logging view is in `.compact` (short viewport, keyboard up in landscape), the
+  tab buttons drop to `font-size: 0` and the only remaining active marker is
+  `color`, which emoji glyphs ignore. The result is a tab bar with nothing
+  showing which tab is selected. Low severity, not a blocker, and known before
+  the board sees it. If Lord Soth lands the fix before promotion, it rides along
+  on a new candidate SHA — and that candidate then needs its own recovery build
+  minted after it, per the rule above.
 
 ## Before using real data
 
