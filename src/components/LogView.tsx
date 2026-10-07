@@ -6,7 +6,8 @@ import { dropboxConfigured } from '../dropbox'
 import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { RestTimer } from './RestTimer'
-import { armRestAlert, playRestAlert, type AlertOutcome } from '../restAlert'
+import { armRestAlert, type AlertOutcome } from '../restAlert'
+import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
 
 const PUMP_VALUES = [0, 1, 2]
@@ -29,7 +30,6 @@ export function LogView() {
   const [picker, setPicker] = useState<'add' | number | null>(null)
   const [tick, setTick] = useState(0)
   const [toast, setToast] = useState('')
-  const [restStatus, setRestStatus] = useState('')
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
   const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
@@ -47,30 +47,13 @@ export function LogView() {
     return Math.max(0, Math.ceil((active.restEndsAt - Date.now()) / 1000))
   }, [active, tick])
 
-  /** Set once a rest has been seen counting down in this mount. Reopening the app on a
-   *  deadline that passed while it was closed still has to clear the stale rest, but must not
-   *  alert for a rest that ended minutes ago. */
-  const restRan = useRef(false)
-  useEffect(() => {
-    if (restLeft > 0) {
-      restRan.current = true
-      setRestStatus('')
-    }
-    if (!active) setRestStatus('')
-  }, [restLeft, active?.id])
-
-  useEffect(() => {
-    if (restLeft !== 0 || !active?.restEndsAt) return
-    // Only the rest that just ran out gets an alert. `restRan` rules out a deadline restored
-    // from storage, and the 30s window rules out one that expired while the app sat in the
-    // background for ten minutes — a chime that late is noise, not information.
-    const justExpired = restRan.current && Date.now() - active.restEndsAt < 30_000
-    restRan.current = false
-    if (justExpired) setRestStatus(restDoneStatus(playRestAlert()))
-    // Clear the total as well: Skip already cleared both, so leaving it behind on expiry
-    // stored a rest total with no deadline attached to it.
-    patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))
-  }, [restLeft])
+  /** The expiry itself — the alert, and clearing the stored deadline — belongs to
+   *  `restWatch`, which keeps running while this view is unmounted. All this does is paint
+   *  the outcome of the last rest that ran out, which is still worth reading on return from
+   *  another tab, especially when neither the chime nor the buzz could be delivered. */
+  const [done, setDone] = useState(restDone())
+  useEffect(() => subscribeRestDone(() => setDone(restDone())), [])
+  const restStatus = done ? restDoneStatus(done.outcome) : ''
 
   const elapsed = useMemo(() => {
     void tick
