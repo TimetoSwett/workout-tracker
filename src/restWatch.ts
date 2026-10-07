@@ -55,8 +55,18 @@ export function restDone(): RestDone | null {
   return done
 }
 
+/** Subscribes to the rest-done line, and delivers whatever is already recorded once, now.
+ *
+ *  That immediate call is the point of this function, not a convenience. `startRestWatch` runs
+ *  before the first render, so a deadline that is already past when the app opens arms a 0 ms
+ *  timeout — and Preact defers `useEffect`, so that timeout fires in the gap between `LogView`
+ *  rendering and `LogView` subscribing. The outcome is recorded, but `setDone` iterates an
+ *  empty listener set, and the board gets a buzz over a blank rest row. QA measured exactly
+ *  that on `83c738e`, at 2s, 5s and 20s stale. A subscriber reading the latch itself cannot
+ *  close that window, because the value it needs does not exist yet when it reads. */
 export function subscribeRestDone(fn: () => void): () => void {
   doneListeners.add(fn)
+  fn()
   return () => {
     doneListeners.delete(fn)
   }

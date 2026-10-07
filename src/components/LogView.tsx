@@ -50,7 +50,11 @@ export function LogView() {
   /** The expiry itself — the alert, and clearing the stored deadline — belongs to
    *  `restWatch`, which keeps running while this view is unmounted. All this does is paint
    *  the outcome of the last rest that ran out, which is still worth reading on return from
-   *  another tab, especially when neither the chime nor the buzz could be delivered. */
+   *  another tab, especially when neither the chime nor the buzz could be delivered.
+   *
+   *  `subscribeRestDone` delivers whatever is already recorded as it attaches, which covers a
+   *  rest that runs out between this render and this effect — the ordinary case when the app
+   *  opens on a deadline that has only just passed. */
   const [done, setDone] = useState(restDone())
   useEffect(() => subscribeRestDone(() => setDone(restDone())), [])
   const restStatus = done ? restDoneStatus(done.outcome) : ''

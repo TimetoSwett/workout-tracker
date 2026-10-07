@@ -345,6 +345,33 @@ async function main() {
         !/Rest done/.test((await restStatusText()) ?? ''), JSON.stringify(await restStatusText()))
     }
 
+    // --- A deadline that has only just passed when the app opens. The watcher alerts here on
+    // --- purpose: inside the grace window the rest really did just end, and a cold launch
+    // --- mid-rest is an ordinary outcome of Android reclaiming the WebView. But the chime is
+    // --- blocked by construction in a brand-new document — no gesture has unlocked the
+    // --- AudioContext — so the visible line is the only channel that can be relied on, and
+    // --- QA measured it missing on 83c738e: the 0ms timeout fired between LogView's render
+    // --- and its subscription, so the recorded outcome reached no listener at all.
+    for (const agoMs of [2_000, 20_000]) {
+      console.log(`\n=== Opening on a deadline ${agoMs / 1000}s past ===`)
+      await run(SEED(90, Date.now() - agoMs))
+      await dt.send('Page.navigate', { url: base })
+      await waitFor('active log reloaded', async () => await run(`!!document.querySelector('.active-log .set-row .icon-btn')`))
+      await sleep(1_500)
+      const onOpen = await counts()
+      record(`opening ${agoMs / 1000}s past the deadline alerts once`, onOpen.vibes === 1, `${onOpen.vibes} vibration(s)`)
+      const openLine = (await restStatusText()) ?? ''
+      record(`the buzz on open comes with a visible line (${agoMs / 1000}s past)`,
+        /Rest done/.test(openLine), JSON.stringify(openLine))
+      // Nothing has been tapped in this document, so the chime cannot have played. The line
+      // has to say so rather than implying a sound the board never heard.
+      record(`the line on open does not claim a chime that was blocked (${agoMs / 1000}s past)`,
+        onOpen.oscStarts > 0 ? !/no sound/.test(openLine) : /no sound/.test(openLine),
+        `${onOpen.oscStarts} oscillator(s), line ${JSON.stringify(openLine)}`)
+      record(`the deadline is cleared on open (${agoMs / 1000}s past)`, (await storedDeadline()) === null,
+        JSON.stringify(await storedDeadline()))
+    }
+
     // --- A deadline that passed while the app was closed must be cleaned up in silence.
     console.log('\n=== Reopening on an expired rest ===')
     await run(SEED(90, Date.now() - 5 * 60_000))
