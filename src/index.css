@@ -239,6 +239,8 @@ button {
   align-items: center;
   gap: 2px;
   cursor: pointer;
+  /* Anchors the active-tab rule below. */
+  position: relative;
 }
 
 .tab-icon {
@@ -246,8 +248,32 @@ button {
   line-height: 1;
 }
 
+/* The accent on the active button only ever reached the caption: the icons are emoji, and a
+   colour-font glyph ignores `color`. So in `.logging.compact`, which zeroes the caption to buy
+   vertical space, nothing marked the selected tab at all.
+
+   Mark it with geometry and saturation instead of text colour, both of which survive a zeroed
+   font size and cost no vertical space: an accent rule drawn over the bar's own top border, and
+   desaturated icons on every tab but the active one. */
 .tabbar button.active {
   color: var(--accent);
+}
+
+.tabbar button.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 26px;
+  margin-left: -13px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+}
+
+.tabbar button:not(.active) .tab-icon {
+  filter: grayscale(1);
+  opacity: 0.6;
 }
 
 .log-header {
@@ -1181,6 +1207,8 @@ code {
 .app.logging.compact .log-header { margin-bottom: 6px; }
 /* Zeroing the button font size drops the caption text node, which has no element to target;
    the icon sets its own size in rem so it is unaffected, and the caption stays in the
-   accessibility tree. Needs the #app prefix to out-specify `#app .tabbar button` above. */
+   accessibility tree. Needs the #app prefix to out-specify `#app .tabbar button` above.
+   The selected tab does not ride on the caption — see the active rule and the desaturated
+   inactive icons near `.tabbar button.active` — so zeroing it here loses no affordance. */
 #app .logging.compact .tabbar button { padding: 5px 0 6px; gap: 0; font-size: 0; }
 #app .logging.compact .tabbar .tab-icon { font-size: 1.15rem; }
