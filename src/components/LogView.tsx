@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout } from '../types'
 import { getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
@@ -6,6 +6,7 @@ import { dropboxConfigured } from '../dropbox'
 import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { RestTimer } from './RestTimer'
+import { armRestAlert, playRestAlert, type AlertOutcome } from '../restAlert'
 import { localDate, localDateDaysAgo } from '../dates'
 
 const PUMP_VALUES = [0, 1, 2]
@@ -13,6 +14,15 @@ const SORENESS_VALUES = [-1, 0, 1, 2, 3]
 const WORKLOAD_VALUES = [0, 1, 2, 3]
 
 type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number }>
+
+/** The one channel that always arrives. A chime can be blocked by autoplay policy and a buzz
+ *  can be swallowed by the platform, so when neither got through the toast says so instead of
+ *  implying the rest quietly ended on its own. */
+function restDoneToast(o: AlertOutcome): string {
+  if (o.sound === 'played') return 'Rest done 💪'
+  if (o.vibration === 'sent') return 'Rest done 💪 — buzz only, no sound here'
+  return 'Rest done 💪 — no sound or buzz on this device'
+}
 
 export function LogView() {
   const { active, settings, workouts, templates, mesocycles } = useStore()
@@ -36,13 +46,25 @@ export function LogView() {
     return Math.max(0, Math.ceil((active.restEndsAt - Date.now()) / 1000))
   }, [active, tick])
 
+  /** Set once a rest has been seen counting down in this mount. Reopening the app on a
+   *  deadline that passed while it was closed still has to clear the stale rest, but must not
+   *  alert for a rest that ended minutes ago. */
+  const restRan = useRef(false)
   useEffect(() => {
-    if (restLeft === 0 && active?.restEndsAt) {
-      if ('vibrate' in navigator) navigator.vibrate?.(400)
-      // Clear the total as well: Skip already cleared both, so leaving it behind on expiry
-      // stored a rest total with no deadline attached to it.
-      patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))
-    }
+    if (restLeft > 0) restRan.current = true
+  }, [restLeft])
+
+  useEffect(() => {
+    if (restLeft !== 0 || !active?.restEndsAt) return
+    // Only the rest that just ran out gets an alert. `restRan` rules out a deadline restored
+    // from storage, and the 30s window rules out one that expired while the app sat in the
+    // background for ten minutes — a chime that late is noise, not information.
+    const justExpired = restRan.current && Date.now() - active.restEndsAt < 30_000
+    restRan.current = false
+    if (justExpired) showToast(restDoneToast(playRestAlert()))
+    // Clear the total as well: Skip already cleared both, so leaving it behind on expiry
+    // stored a rest total with no deadline attached to it.
+    patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))
   }, [restLeft])
 
   const elapsed = useMemo(() => {
@@ -50,6 +72,16 @@ export function LogView() {
     if (!active) return 0
     return Math.floor((Date.now() - active.startedAt) / 60000)
   }, [active, tick])
+
+  /** One timer, not one per toast. Two messages close together used to share the first
+   *  message's timeout, so the second vanished early — now visible since a rest ending can
+   *  land on top of any other toast. */
+  const toastTimer = useRef(0)
+  function showToast(message: string) {
+    setToast(message)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(''), 2500) as unknown as number
+  }
 
   /** Reads the live store rather than the render-time `active`. Two patches in one
    *  handler both build from the same snapshot otherwise, and the second silently
@@ -120,6 +152,9 @@ export function LogView() {
     const set = getState().active?.exercises[exIdx]?.sets[setIdx]
     if (!set) return
     const done = !set.done
+    // This tap is the user gesture that lets the completion chime play when the rest it starts
+    // runs out, minutes later and with no gesture of its own. Nothing is heard now.
+    if (done) armRestAlert()
     patch((a) => ({
       ...a,
       exercises: a.exercises.map((ex, i) =>
@@ -138,9 +173,8 @@ export function LogView() {
     setConfirmDiscard(false)
     setPendingFinish(null)
     setFeedback(null)
-    setToast('Workout saved ✓')
+    showToast('Workout saved ✓')
     if (dropboxConfigured(settings)) sync()
-    setTimeout(() => setToast(''), 2500)
   }
 
   function finish() {
@@ -154,8 +188,7 @@ export function LogView() {
     if (trimmed.exercises.length === 0) {
       setActive(null)
       setConfirmDiscard(false)
-      setToast('Nothing logged — workout discarded')
-      setTimeout(() => setToast(''), 2500)
+      showToast('Nothing logged — workout discarded')
       return
     }
     if (trimmed.mesoId) {
@@ -196,8 +229,7 @@ export function LogView() {
     }
     setTemplates([...templates, t])
     patch((a) => ({ ...a, name }))
-    setToast(`Template “${name}” saved`)
-    setTimeout(() => setToast(''), 2500)
+    showToast(`Template “${name}” saved`)
   }
 
   if (feedback && pendingFinish) {
