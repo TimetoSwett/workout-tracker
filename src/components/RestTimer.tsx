@@ -3,6 +3,7 @@ interface Props {
    *  cases so its height never changes. */
   secondsLeft: number
   total: number
+  status?: string
   onAdd: (s: number) => void
   onStop: () => void
 }
@@ -15,7 +16,7 @@ interface Props {
  *  390px — and pulled them back up again on Skip or expiry. Since a stable layout has to
  *  reserve the tallest state anyway, the collapse toggle was saving nothing: +30s and Skip
  *  are now always on the row, disabled while no rest is running. */
-export function RestTimer({ secondsLeft, total, onAdd, onStop }: Props) {
+export function RestTimer({ secondsLeft, total, status, onAdd, onStop }: Props) {
   const running = secondsLeft > 0
   const pct = running && total > 0 ? (secondsLeft / total) * 100 : 0
   const mm = Math.floor(secondsLeft / 60)
@@ -27,7 +28,7 @@ export function RestTimer({ secondsLeft, total, onAdd, onStop }: Props) {
 
   return (
     <div class="rest-timer">
-      <div class="rest-summary">
+      <div class={`rest-summary${!running && status ? ' has-status' : ''}`}>
         <div class="rest-label">Rest</div>
         <div class="rest-time">{running ? `${mm}:${String(ss).padStart(2, '0')}` : '—'}</div>
         <div class="rest-actions">
@@ -37,6 +38,9 @@ export function RestTimer({ secondsLeft, total, onAdd, onStop }: Props) {
           <button class="btn small danger" disabled={!running} onClick={onStop}>
             Skip
           </button>
+        </div>
+        <div class="rest-status" role="status" aria-live="polite" aria-atomic="true">
+          {!running ? status : ''}
         </div>
       </div>
       <div class="rest-bar">
