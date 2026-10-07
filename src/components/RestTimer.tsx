@@ -1,5 +1,3 @@
-import { useEffect } from 'preact/hooks'
-
 interface Props {
   /** Seconds of rest remaining; 0 means no rest is running. The strip renders in both
    *  cases so its height never changes. */
@@ -23,9 +21,9 @@ export function RestTimer({ secondsLeft, total, onAdd, onStop }: Props) {
   const mm = Math.floor(secondsLeft / 60)
   const ss = secondsLeft % 60
 
-  useEffect(() => {
-    if (secondsLeft > 0 && 'vibrate' in navigator) navigator.vibrate?.(1)
-  }, [secondsLeft])
+  // No per-tick vibration. This used to fire navigator.vibrate(1) on every second of the
+  // countdown — 90 motor wake-ups for a default rest — competing with the one alert that
+  // actually means something. The only haptic during a rest is now the one that marks its end.
 
   return (
     <div class="rest-timer">
