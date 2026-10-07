@@ -54,6 +54,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Rest-timer end alert (TOM-39). `navigator.vibrate()` from the WebView is routed through
+         the host app's permissions, and without this it returns true and does nothing at all -
+         which is most likely why the board felt no buzz when a rest ended. Normal, install-time
+         permission: granted at install with no runtime prompt and no user-visible decision. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <!-- In-app updates (TOM-2): this app is sideloaded, so it updates itself by handing a
          downloaded release APK to the system package installer (AppUpdatePlugin). Declaring this
          is necessary but not sufficient - the board also grants "install unknown apps" once, on
