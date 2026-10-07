@@ -16,9 +16,9 @@ const WORKLOAD_VALUES = [0, 1, 2, 3]
 type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number }>
 
 /** The one channel that always arrives. A chime can be blocked by autoplay policy and a buzz
- *  can be swallowed by the platform, so when neither got through the toast says so instead of
+ *  can be swallowed by the platform, so when neither got through the timer status says so instead of
  *  implying the rest quietly ended on its own. */
-function restDoneToast(o: AlertOutcome): string {
+function restDoneStatus(o: AlertOutcome): string {
   if (o.sound === 'played') return 'Rest done 💪'
   if (o.vibration === 'sent') return 'Rest done 💪 — buzz only, no sound here'
   return 'Rest done 💪 — no sound or buzz on this device'
@@ -29,6 +29,7 @@ export function LogView() {
   const [picker, setPicker] = useState<'add' | number | null>(null)
   const [tick, setTick] = useState(0)
   const [toast, setToast] = useState('')
+  const [restStatus, setRestStatus] = useState('')
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
   const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
@@ -51,8 +52,12 @@ export function LogView() {
    *  alert for a rest that ended minutes ago. */
   const restRan = useRef(false)
   useEffect(() => {
-    if (restLeft > 0) restRan.current = true
-  }, [restLeft])
+    if (restLeft > 0) {
+      restRan.current = true
+      setRestStatus('')
+    }
+    if (!active) setRestStatus('')
+  }, [restLeft, active?.id])
 
   useEffect(() => {
     if (restLeft !== 0 || !active?.restEndsAt) return
@@ -61,7 +66,7 @@ export function LogView() {
     // background for ten minutes — a chime that late is noise, not information.
     const justExpired = restRan.current && Date.now() - active.restEndsAt < 30_000
     restRan.current = false
-    if (justExpired) showToast(restDoneToast(playRestAlert()))
+    if (justExpired) setRestStatus(restDoneStatus(playRestAlert()))
     // Clear the total as well: Skip already cleared both, so leaving it behind on expiry
     // stored a rest total with no deadline attached to it.
     patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))
@@ -73,9 +78,7 @@ export function LogView() {
     return Math.floor((Date.now() - active.startedAt) / 60000)
   }, [active, tick])
 
-  /** One timer, not one per toast. Two messages close together used to share the first
-   *  message's timeout, so the second vanished early — now visible since a rest ending can
-   *  land on top of any other toast. */
+  /** One timer, not one per toast, so a new message gets its full display time. */
   const toastTimer = useRef(0)
   function showToast(message: string) {
     setToast(message)
@@ -362,6 +365,7 @@ export function LogView() {
           strip keeps its height in that state so starting or ending rest moves nothing. */}
       <RestTimer
         secondsLeft={restLeft}
+        status={restStatus}
         total={active.restTotal ?? settings.restSeconds}
         onAdd={(s) =>
           patch((a) => ({ ...a, restEndsAt: (a.restEndsAt ?? Date.now()) + s * 1000, restTotal: (a.restTotal ?? 0) + s }))

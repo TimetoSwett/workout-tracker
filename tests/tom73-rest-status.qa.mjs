@@ -1,30 +1,10 @@
 #!/usr/bin/env node
-// Regression probe for the TOM-39 acceptance failure: the board reported no noticeable ping or
-// vibration when a rest ended. The old build only called `navigator.vibrate(400)`, which cannot
-// make a sound and is silently ignored in several ordinary cases, so there was no way to tell a
-// delivered alert from a swallowed one.
-//
-// This drives the real built app in headless Chromium with `navigator.vibrate` and
-// `OscillatorNode.prototype.start` instrumented, and asserts the three behaviours the fix has
-// to get right:
-//
-//   - the alert fires exactly once, when the rest actually runs out;
-//   - Skip is silent, and so is every second of the countdown (no per-second buzz, TOM-68);
-//   - expiry always shows the visible fallback, because neither device channel is guaranteed.
-//
-// Clicks are dispatched with CDP `userGesture: true`. Without it the page has no user
-// activation, autoplay policy keeps the AudioContext suspended, and the chime assertions would
-// be testing the harness rather than the app. The number of oscillators per chime is calibrated
-// from the Settings "Test" button rather than hard-coded, so changing the chime's note count
-// does not break this probe. If the harness has no working audio output at all, that is
-// reported as a limitation and the vibration and toast assertions still run.
-//
-// All data is synthesized here; no real health data and no network.
-//
-//   npm run build && node tests/tom39-completion-alert.qa.mjs
+// Built-app regression: rest completion must fit the reserved timer row without moving
+// or covering the focused editor. Synthetic data, three channel outcomes, six viewports.
+// npm run build && node tests/tom73-rest-status.qa.mjs
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { extname, join, resolve } from 'node:path'
 
@@ -214,99 +194,41 @@ async function main() {
     await waitFor('first paint', async () => await run(`!!document.querySelector('.app')`))
     await run(SEED(4, null))
 
-    // --- Settings test button: the board's own way to check the alert, and this probe's
-    // --- calibration for how many oscillators one chime starts.
-    console.log('\n=== Settings · Rest end alert ===')
-    await dt.send('Page.navigate', { url: base })
-    await waitFor('tab bar', async () => await run(`!!document.querySelector('.tabbar')`))
-    await tap(`[...document.querySelectorAll('.tabbar button, .tabbar a')].find(b => /settings/i.test(b.textContent)).click()`)
-    const testButton = `[...document.querySelectorAll('.setting-row')].find(r => /Rest end alert/.test(r.textContent))?.querySelector('button')`
-    record('Settings offers a rest-alert test button', !!(await waitFor('settings rendered',
-      async () => await run(`!!(${testButton})`), 5_000).catch(() => false)), '')
-    await resetCounts()
-    await tap(`(${testButton}).click()`)
-    await sleep(300)
-    const afterTest = await counts()
-    const statusLine = await run(
-      `[...document.querySelectorAll('.card')].find(c => /Rest end alert/.test(c.textContent))?.querySelector('p.muted')?.textContent?.trim() ?? ''`)
-    record('the test button reports what it actually delivered', /Chime|audio/i.test(statusLine) && /buzz|vibration/i.test(statusLine),
-      statusLine.slice(0, 90))
-    record('the test button requests a vibration', afterTest.vibes === 1, `${afterTest.vibes} call(s)`)
-    record('the status line does not push Settings sideways',
-      !(await run(`document.documentElement.scrollWidth > document.documentElement.clientWidth`)), 'at 390px')
 
-    const NOTES_PER_CHIME = afterTest.oscStarts
-    if (NOTES_PER_CHIME === 0) {
-      note('no audio output in this harness — chime assertions are limited to "no sound scheduled"; a real device still needs the board')
-    } else {
-      record('the test button plays an audible chime', NOTES_PER_CHIME >= 1, `${NOTES_PER_CHIME} oscillator(s) per chime`)
+    for (const mode of ['supported', 'buzz-only', 'unsupported']) {
+      for (const [width, height] of [[360,800],[390,844],[844,390],[1280,800],[844,214],[360,400]]) {
+        await dt.send('Emulation.setDeviceMetricsOverride', {width,height,deviceScaleFactor:1,mobile:width<1000})
+        await run(SEED(3,null))
+        await run(`(()=>{let s=JSON.parse(localStorage.getItem('wt.active.v1'));s.active.exercises[0].sets=Array.from({length:12},()=>({weight:135,reps:8,done:false}));localStorage.setItem('wt.active.v1',JSON.stringify(s))})()`)
+        await dt.send('Page.navigate', {url:base})
+        await waitFor('log',async()=>await run(`!!document.querySelector('.active-log .set-row .icon-btn')`))
+        if (mode !== 'supported') await run(`Object.defineProperty(window,'AudioContext',{configurable:true,value:undefined});Object.defineProperty(window,'webkitAudioContext',{configurable:true,value:undefined})`)
+        if (mode === 'unsupported') await run(`Object.defineProperty(navigator,'vibrate',{configurable:true,value:undefined})`)
+        await completeSet(0)
+        await run(`(()=>{let f=document.querySelectorAll('.set-row:not(.set-labels) input')[8];f.focus();f.scrollIntoView({block:'center'})})()`)
+        const measure = () => run(`(()=>{
+          const box=e=>{let r=e.getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,b:r.bottom}};
+          const status=document.querySelector('.rest-status'), range=document.createRange();range.selectNodeContents(status);
+          return {status:status.textContent, timer:box(document.querySelector('.rest-timer')), editor:box(document.querySelector('.log-scroll')), focus:box(document.activeElement), statusBox:box(status), text:box(range), overflow:document.documentElement.scrollWidth>innerWidth, floating:!!document.querySelector('.toast')};
+        })()`)
+        const before = await measure()
+        await waitFor('completion status',async()=>await run(`document.querySelector('.rest-status')?.textContent`),6000)
+        const after = await measure()
+        const label = `${mode} ${width}x${height}`
+        record(`${label} geometry stable`, ['timer','editor','focus'].every(k=>JSON.stringify(before[k])===JSON.stringify(after[k])), JSON.stringify({before,after}))
+        record(`${label} status outside editor`, after.statusBox.b <= after.editor.y && !after.floating && !after.overflow, JSON.stringify(after))
+        record(`${label} full text fits timer`, after.text.y>=after.statusBox.y && after.text.b<=after.statusBox.b && after.text.w<=after.statusBox.w, JSON.stringify(after))
+        record(`${label} channel feedback`, mode==='unsupported' ? /no sound or buzz/.test(after.status) : mode==='buzz-only' ? /buzz only/.test(after.status) : after.status==='Rest done 💪', after.status)
+        await completeSet(1)
+        await waitFor('status cleared on next rest',async()=>await run(`document.querySelector('.rest-status').textContent === ''`))
+        await tap(`[...document.querySelectorAll('button')].find(b=>/Add exercise/.test(b.textContent)).click()`)
+        await waitFor('modal',async()=>await run(`!!document.querySelector('.modal input')`))
+        await waitFor('expiry behind modal',async()=>await run(`document.querySelector('.rest-status')?.textContent`),6000)
+        record(`${label} modal above status`, await run(`(()=>{const e=document.querySelector('.modal input'),r=e.getBoundingClientRect();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===e && !document.querySelector('.toast')})()`), '')
+        await tap(`[...document.querySelectorAll('.modal button')].find(b=>b.textContent==='Cancel').click()`)
+        record(`${label} completion survives modal`, /Rest done/.test(await run(`document.querySelector('.rest-status').textContent`)), '')
+      }
     }
-
-    // --- Countdown, Skip, expiry.
-    console.log('\n=== Log · countdown, Skip, expiry ===')
-    await run(SEED(4, null))
-    await dt.send('Page.navigate', { url: base })
-    await waitFor('active log', async () => await run(`!!document.querySelector('.active-log .set-row .icon-btn')`))
-    // Arm audio the way the app does, through the tap that starts a rest. The reload above
-    // dropped the previous document's AudioContext.
-    await resetCounts()
-
-    await completeSet(0)
-    await waitFor('rest running', async () => (await restTime()) !== '—')
-    await sleep(2_200) // two full ticks of a 4s rest
-    const duringCountdown = await counts()
-    record('no vibration during the countdown', duringCountdown.vibes === 0, `${duringCountdown.vibes} call(s) over 2 ticks`)
-    record('no sound during the countdown', duringCountdown.oscStarts === 0, `${duringCountdown.oscStarts} oscillator(s)`)
-
-    await tap(`[...document.querySelectorAll('.rest-actions button')].find(b => b.textContent.trim() === '+30s').click()`)
-    await sleep(400)
-    const afterAdd = await counts()
-    record('+30s does not alert', afterAdd.vibes === 0 && afterAdd.oscStarts === 0,
-      `${afterAdd.vibes} vibe(s), ${afterAdd.oscStarts} oscillator(s)`)
-
-    await tap(`[...document.querySelectorAll('.rest-actions button')].find(b => b.textContent.trim() === 'Skip').click()`)
-    await waitFor('rest skipped', async () => (await restTime()) === '—')
-    await sleep(1_500)
-    const afterSkip = await counts()
-    record('Skip is silent', afterSkip.vibes === 0 && afterSkip.oscStarts === 0,
-      `${afterSkip.vibes} vibe(s), ${afterSkip.oscStarts} oscillator(s)`)
-    record('Skip shows no rest-done message', !/Rest done/.test(await run(`document.querySelector('.rest-status')?.textContent ?? ''`)), '')
-
-    await completeSet(1)
-    await waitFor('second rest running', async () => (await restTime()) !== '—')
-    await waitFor('rest expires on its own', async () => (await restTime()) === '—', 10_000)
-    const toast = await waitFor('rest-done toast', async () => await run(`document.querySelector('.rest-status')?.textContent ?? null`), 3_000)
-      .catch(() => '')
-    record('expiry always shows the visible fallback', /Rest done/.test(toast), JSON.stringify(toast))
-    // Settle well past one tick: an alert that re-fires on every render would show up here.
-    await sleep(2_500)
-    const afterExpiry = await counts()
-    record('expiry vibrates exactly once', afterExpiry.vibes === 1, `${afterExpiry.vibes} call(s)`)
-    record('the vibration is a pattern with gaps, not one flat pulse',
-      await run(`Array.isArray(window.__qa.vibes[0]) && window.__qa.vibes[0].length > 1`),
-      JSON.stringify(await run(`window.__qa.vibes[0] ?? null`)))
-    if (NOTES_PER_CHIME > 0) {
-      record('expiry chimes exactly once', afterExpiry.oscStarts === NOTES_PER_CHIME,
-        `${afterExpiry.oscStarts} oscillator(s), one chime is ${NOTES_PER_CHIME}`)
-    }
-    record('expiry clears the deadline without unmounting the strip',
-      await run(`JSON.parse(localStorage.getItem('wt.active.v1')).active.restEndsAt == null && !!document.querySelector('.rest-timer')`), '')
-
-    // --- A deadline that passed while the app was closed must be cleaned up in silence.
-    console.log('\n=== Reopening on an expired rest ===')
-    await run(SEED(90, Date.now() - 5 * 60_000))
-    await dt.send('Page.navigate', { url: base })
-    await waitFor('active log reloaded', async () => await run(`!!document.querySelector('.active-log .set-row .icon-btn')`))
-    await sleep(1_500)
-    const afterReopen = await counts()
-    record('a rest that expired while the app was closed does not alert on open',
-      afterReopen.vibes === 0 && afterReopen.oscStarts === 0,
-      `${afterReopen.vibes} vibe(s), ${afterReopen.oscStarts} oscillator(s)`)
-    record('the stale rest is still cleared on open',
-      await run(`JSON.parse(localStorage.getItem('wt.active.v1')).active.restEndsAt == null`), '')
-    record('no stale rest-done message on open',
-      !/Rest done/.test(await run(`document.querySelector('.rest-status')?.textContent ?? ''`)), '')
-
     await dt.send('Target.closeTarget', { targetId }, null)
   } finally {
     chrome.kill()

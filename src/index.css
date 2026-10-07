@@ -1141,10 +1141,25 @@ code {
 .active-log { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; }
 .log-scroll { overflow-y: auto; min-height: 0; padding-bottom: 12px; }
 .active-log .rest-timer { max-width: none; padding: 8px; }
-.rest-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rest-summary { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rest-summary .rest-time { font-size: 1.25rem; }
 .rest-summary .rest-actions { flex: none; }
 .rest-summary button { flex-shrink: 0; }
+/* Use the existing timer row for completion, never the editor's space. Keep the
+   controls in layout so expiry cannot change the row height, even with a keyboard. */
+.rest-summary.has-status > :not(.rest-status) { visibility: hidden; }
+.rest-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
 
 .logging .tabbar { position: static; transform: none; flex: none; }
 .logging main { padding-bottom: 12px; overflow: auto; }
