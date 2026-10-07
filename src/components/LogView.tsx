@@ -39,7 +39,9 @@ export function LogView() {
   useEffect(() => {
     if (restLeft === 0 && active?.restEndsAt) {
       if ('vibrate' in navigator) navigator.vibrate?.(400)
-      patch((a) => ({ ...a, restEndsAt: undefined }))
+      // Clear the total as well: Skip already cleared both, so leaving it behind on expiry
+      // stored a rest total with no deadline attached to it.
+      patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))
     }
   }, [restLeft])
 

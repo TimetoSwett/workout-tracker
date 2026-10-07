@@ -242,8 +242,14 @@ async function main() {
       await waitFor('rest expires on its own',
         async () => (await evaluate(`document.querySelector('.rest-time')?.textContent`)) === '—', 10_000)
       states['idle-after-expiry'] = await measure()
+      // The DOM shows `—` on the render where `restLeft` reaches 0, but `restEndsAt` is cleared
+      // in an effect that runs after that render commits. A single immediate read raced that
+      // gap and failed on a different viewport each run. Poll instead: the clear always lands,
+      // and the assertion is unchanged for a build that never clears it.
       record(vp.name, 'expiry clears the deadline without unmounting the strip',
-        await evaluate(`JSON.parse(localStorage.getItem('wt.active.v1')).active.restEndsAt == null && !!document.querySelector('.rest-timer')`), '')
+        await waitFor('restEndsAt cleared after expiry',
+          async () => await evaluate(`JSON.parse(localStorage.getItem('wt.active.v1')).active.restEndsAt == null && !!document.querySelector('.rest-timer')`),
+          5_000).then(() => true, () => false), '')
 
       const names = Object.keys(states)
       for (const anchor of ['header', 'scroll', 'firstCard', 'firstInput']) {

@@ -31,7 +31,7 @@ export function LegacyWeights() {
     {file && !unknown.length && <p>All records already have units.</p>}
     {file && weightLines(file.content).some(({ record }) => record.weightUnit === 'kg') && <p role="alert">This file contains explicit kg labels. If you entered everything in pounds, these labels conflict with that history. They will not be overwritten; compare them with your original backup.</p>}
     {!!unknown.length && <>
-      <p role="status">{unknown.length} unresolved records in this file. Existing unit labels are retained.</p>
+      <p role="status">{unknown.length} unresolved record{unknown.length === 1 ? '' : 's'} in this file. Existing unit labels are retained.</p>
       {unknown.some(({ record }) => 'weightUnit' in record) && <p role="alert">An existing unit label is invalid. Saving is blocked; review the raw file rather than replacing that label.</p>}
       <button class="btn ghost wide" disabled={busy} onClick={() => setUnits(Object.fromEntries(unknown.map((_, i) => [i, 'lbs'])))}>I entered all unlabeled records in pounds (lb)</button>
     </>}
