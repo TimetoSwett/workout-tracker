@@ -1,6 +1,7 @@
+import { exportWorkoutBackup, importWorkoutBackup, mergeWorkoutBackup } from '../workoutBackup'
 import { LegacyWeights } from './LegacyWeights'
 import { useEffect, useState } from 'preact/hooks'
-import type { AISettings, Workout } from '../types'
+import type { AISettings } from '../types'
 import { clearHistory, getState, setSettings, setWorkouts, useStore } from '../store'
 import { sync } from '../sync'
 import { syncMetrics } from '../metricsSync'
@@ -31,19 +32,6 @@ function csvCell(v: string): string {
   return `"${safe.replace(/"/g, '""')}"`
 }
 
-/** Minimal shape check so a malformed import can't persist data that crashes every render. */
-function isWorkoutShape(w: unknown): w is Workout {
-  if (typeof w !== 'object' || w === null) return false
-  const o = w as Record<string, unknown>
-  return (
-    typeof o.id === 'string' &&
-    o.id.length > 0 &&
-    typeof o.startedAt === 'number' &&
-    Array.isArray(o.exercises) &&
-    o.exercises.every((ex) => typeof ex === 'object' && ex !== null && Array.isArray((ex as { sets?: unknown }).sets))
-  )
-}
-
 function download(filename: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }))
   const a = document.createElement('a')
@@ -61,6 +49,7 @@ export function SettingsView() {
     settings.ai ? { ...settings.ai, apiKey: '' } : { provider: 'anthropic', model: 'claude-sonnet-4-5', apiKey: '', baseUrl: '' },
   )
   const [status, setStatus] = useState('')
+  const [legacyImport, setLegacyImport] = useState<unknown[] | null>(null)
   const [dbxStatus, setDbxStatus] = useState('')
   const [showHelp, setShowHelp] = useState(false)
   const [hcAvailability, setHcAvailability] = useState<HealthConnectAvailability | null>(null)
@@ -179,7 +168,7 @@ export function SettingsView() {
   }
 
   function exportJson() {
-    download('workouts.json', JSON.stringify(workouts, null, 2), 'application/json')
+    download('workouts.json', JSON.stringify(exportWorkoutBackup(workouts, settings.units), null, 2), 'application/json')
   }
 
   function exportCsv() {
@@ -194,23 +183,28 @@ export function SettingsView() {
     download('workouts.csv', rows.join('\n'), 'text/csv')
   }
 
-  function importJson(file: File) {
-    file.text().then((text) => {
-      try {
-        const parsed: unknown = JSON.parse(text)
-        if (!Array.isArray(parsed)) throw new Error('expected an array of workouts')
-        const bad = parsed.findIndex((w) => !isWorkoutShape(w))
-        if (bad >= 0) throw new Error(`item ${bad + 1} is not a workout (needs id, startedAt, exercises[])`)
-        // Start from the raw list so existing tombstones survive the write.
-        const existing = getState().workouts
-        const ids = new Set(existing.map((w) => w.id))
-        const added = (parsed as Workout[]).filter((w) => !ids.has(w.id))
-        setWorkouts([...existing, ...added])
-        flash(`Imported (${added.length} new)`)
-      } catch (e) {
-        flash(`Import failed: ${e instanceof Error ? e.message : 'invalid JSON'}`)
-      }
-    })
+  function restoreJson(parsed: unknown, legacyUnits?: Units) {
+    try {
+      const current = getState()
+      const incoming = importWorkoutBackup(parsed, current.settings.units, legacyUnits)
+      const merged = mergeWorkoutBackup(current.workouts, incoming)
+      setWorkouts(merged)
+      setLegacyImport(null)
+      flash(`Imported (${merged.length - current.workouts.length} new)`)
+    } catch (e) {
+      flash(`Import failed: ${e instanceof Error ? e.message : 'invalid JSON'}`)
+    }
+  }
+
+  async function importJson(file: File) {
+    setLegacyImport(null)
+    try {
+      const parsed: unknown = JSON.parse(await file.text())
+      if (Array.isArray(parsed)) setLegacyImport(parsed)
+      else restoreJson(parsed)
+    } catch (e) {
+      flash(`Import failed: ${e instanceof Error ? e.message : 'invalid JSON'}`)
+    }
   }
 
   return (
@@ -528,26 +522,40 @@ export function SettingsView() {
 
       <div class="card">
         <h3>Data</h3>
+        <p class="muted small">Exports contain workouts only, not settings, health metrics, plans, or credentials.
+          JSON includes weight units. Imports add new workouts; existing workouts and deletions are kept.</p>
         <div class="btn-row">
           <button class="btn ghost" onClick={exportJson}>
-            Export JSON
+            Export workouts JSON
           </button>
           <button class="btn ghost" onClick={exportCsv}>
             Export CSV
           </button>
           <label class="btn ghost file-btn">
-            Import JSON
+            Import workouts JSON
             <input
               type="file"
               accept="application/json"
               hidden
               onChange={(e) => {
                 const f = (e.target as HTMLInputElement).files?.[0]
-                if (f) importJson(f)
+                if (f) void importJson(f)
+                e.currentTarget.value = ''
               }}
             />
           </label>
         </div>
+        {legacyImport !== null && (
+          <div role="group" aria-label="Legacy workout import units">
+            <p>This older file has no weight units. Choose the original units used when it was exported.
+              If you do not know, cancel. Nothing is imported until you choose.</p>
+            <div class="btn-row">
+              <button class="btn ghost" onClick={() => restoreJson(legacyImport, 'lbs')}>Import from pounds (lbs)</button>
+              <button class="btn ghost" onClick={() => restoreJson(legacyImport, 'kg')}>Import from kilograms (kg)</button>
+              <button class="btn ghost" onClick={() => setLegacyImport(null)}>Cancel import</button>
+            </div>
+          </div>
+        )}
         <button
           class="btn danger wide"
           onClick={() => {
