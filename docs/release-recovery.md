@@ -165,35 +165,62 @@ creates one, builds off this branch label themselves by commit.
 The web targets do not have the `versionCode` problem — there is no installer to
 refuse a downgrade — but they do cache.
 
-- **Production** (`workout.tucker-swett.com`, Cloudflare) and **GitHub Pages**
-  both deploy from `main` only. Neither can be moved by a branch build, so
-  neither is at risk from a candidate, and "recovery" for them is just: do not
-  merge. As of this writing production serves `2026.10.06.ef8be3e` /
-  213457601 — the shipped stable commit.
-- A candidate is reachable only through its own Cloudflare preview, on a hostname
-  separate from production. Workers Builds publishes a preview per branch at
-  `https://<branch-with-slashes-as-dashes>-workout-tracker.tuckerswett.workers.dev`,
-  and that alias **follows the branch head**. Convenient, but a push during QA
-  silently moves it, so a pass recorded against a feature branch's alias does not
-  name a commit.
+- **Production** is two surfaces, and neither is moved by a branch.
+  `workout.tucker-swett.com` is a custom domain bound to the `workout-tracker`
+  Worker, published **by hand** with `npx wrangler deploy` from the board's own
+  authenticated machine. **GitHub Pages**
+  (`timetoswett.github.io/workout-tracker/`) is published by
+  `.github/workflows/deploy.yml` on pushes to `main`. So "recovery" for both is:
+  do not merge, and do not run a hand deploy off a candidate tree. As of this
+  writing production serves `2026.10.06.ef8be3e` / 213457601 — the shipped
+  stable commit.
+- **Nothing publishes a preview automatically. Do not assume a branch has one.**
+  Verified 2026-10-08 (TOM-87): the Worker has no Workers Builds git connection
+  and no build history, the account has no Pages project, no workflow touches
+  Cloudflare, and no agent run holds a Cloudflare credential — every version of
+  the Worker was authored from the board's own machine. Every preview URL quoted
+  in this file was made by hand. An earlier revision of this section claimed
+  "Workers Builds publishes a preview per branch"; that was never true, and the
+  `git push <sha>:refs/heads/preview/<short-sha>` recipe it recommended produces
+  a branch, not a preview.
 
-  Cloudflare also publishes a per-version URL
-  (`https://<version-prefix>-workout-tracker…`) that never moves, but the prefix
-  is only visible in the Cloudflare dashboard — the GitHub check run does not
-  carry it, so it cannot be looked up from CI. The way to get an immovable
-  preview without dashboard access is to push the candidate commit to a branch
-  named after it, and then never update that branch:
+  The board accepted connecting Workers Builds to the repo on 2026-10-08, which
+  will make branch pushes publish previews on their own. Until that connection
+  exists and a branch build has been seen to pass, treat a preview as something a
+  human has to publish, from a checkout of the commit under test:
 
   ```sh
-  git push origin <full-sha>:refs/heads/preview/<short-sha>
+  npm run build
+  npx wrangler versions upload --preview-alias preview-<short-sha>
   ```
 
-  That alias is pinned by construction, because the branch has nowhere to move.
-  The current candidate's is
+  Note also that `wrangler.jsonc` is **not on `main`** yet — it arrives with
+  PR #29 — so a branch cut from `main` without it cannot be previewed
+  reproducibly.
+- A candidate is reachable only through its own Cloudflare preview, on a hostname
+  separate from production. A preview comes in two forms:
+
+  - `https://<version-prefix>-workout-tracker.tuckerswett.workers.dev` is pinned
+    to one version and never moves. `npx wrangler versions upload` prints it, so
+    it exists for every uploaded version, but the prefix is otherwise only
+    visible in the Cloudflare dashboard — a GitHub check run does not carry it.
+  - `https://<alias>-workout-tracker.tuckerswett.workers.dev` is a named alias,
+    created by `npx wrangler versions upload --preview-alias <alias>` (and, once
+    Workers Builds is connected, by a branch build using the branch name). An
+    alias is **repointable**: it serves whatever version was last uploaded under
+    that name, so it names a commit only as long as nobody re-uploads it.
+
+  The aliases below look branch-shaped because the hand upload was given an alias
+  matching the branch; naming it after the commit and never re-uploading it is
+  what makes them trustworthy. Neither form can reach production: the custom
+  domain has previews disabled, and `versions upload` never changes the live
+  deployment.
+
+  The current candidate's alias is
   `https://preview-c602979-workout-tracker.tuckerswett.workers.dev`, serving
   bundle `assets/index-yeZO2pgu.js` and reporting `2026.10.07.c602979` /
   213494693 — the same bundle filename the `c602979` APK carries, so the web and
-  Android artifacts under QA are the same code. The previous candidate's pin,
+  Android artifacts under QA are the same code. The previous candidate's alias,
   `https://preview-f836d1e-workout-tracker.tuckerswett.workers.dev`
   (`assets/index-GLnAdP6P.js`, `2026.10.06.f836d1e`), still stands and still
   serves `f836d1e`, so the two candidates stay distinguishable by URL.
@@ -202,7 +229,8 @@ refuse a downgrade — but they do cache.
   Settings → About and refuse to continue unless it is the expected commit (see
   `tests/tom61-preview-verify.qa.mjs`). A URL is a convenience; the self-reported
   version is the attribution.
-- The v0.3.0 code is on the web too, at the recovery branch's own preview —
+- The v0.3.0 code is on the web too, at an alias uploaded by hand for the
+  recovery branch —
   `https://release-tom67-recovery-v030-workout-tracker.tuckerswett.workers.dev`
   (bundle `assets/index-CZRxuw5w.js`, reporting `2026.10.07.53ef15c`). That is
   the web counterpart of the recovery APK — same bundle filename the recovery
