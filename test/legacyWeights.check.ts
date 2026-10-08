@@ -4,13 +4,14 @@ let cloud: Record<string, string> = {}
 let revs: Record<string, number> = {}
 let beforeWrite: (() => void) | undefined
 let failBackup = false
+let corruptBackup = false
 const path = '/workouts.jsonl'
 const raw = '{ "id":"w1", "bodyweight":178.46,"exercises":[{"sets":[{"weight":102.25}]}] }\n'
 require.cache[require.resolve('../src/dropbox')] = {
   id: require.resolve('../src/dropbox'), filename: require.resolve('../src/dropbox'), loaded: true,
   exports: {
     REVISION_CONFLICT: 'conflict',
-    dropboxDownload: async (p: string) => ({ content: cloud[p] ?? null, rev: String(revs[p] ?? 0) }),
+    dropboxDownload: async (p: string) => ({ content: corruptBackup && p !== path ? 'corrupt' : cloud[p] ?? null, rev: String(revs[p] ?? 0) }),
     dropboxUpload: async (content: string, p: string, rev: string | null) => {
       if (p !== path && failBackup) return 'backup denied'
       if (p === path && beforeWrite) { const f = beforeWrite; beforeWrite = undefined; f() }
@@ -48,6 +49,22 @@ async function main() {
     cloud = { [path]: raw }; revs = {}; failBackup = true
     await assert.rejects(migrateLegacyFile({ path, content: raw, rev: '0' }, declaration), /Backup failed/)
     assert.equal(cloud[path], raw); failBackup = false
+  })
+  await check('unrecoverable backup blocks migration and exact raw backup restores original', async () => {
+    cloud = { [path]: raw }; revs = {}; corruptBackup = true
+    await assert.rejects(migrateLegacyFile({ path, content: raw, rev: '0' }, declaration), /recovery verification failed/)
+    assert.equal(cloud[path], raw); corruptBackup = false
+    const backup = await migrateLegacyFile({ path, content: raw, rev: '0' }, declaration)
+    cloud[path] = cloud[backup]
+    assert.equal(cloud[path], raw)
+    assert.equal(JSON.parse(cloud[path]).weightUnit, undefined)
+  })
+  await check('pounds resolution is idempotent and preserves explicit kg and numeric spelling', () => {
+    const kg = '{"id":"kg","bodyweight":80.12300,"weightUnit":"kg"}'
+    const content = raw + kg
+    const resolved = tagLegacyContent(content, declaration)
+    assert.ok(resolved.endsWith(kg))
+    assert.equal(tagLegacyContent(resolved, declaration), resolved)
   })
   await check('simultaneous differing-unit migrators cannot overwrite first declaration', async () => {
     cloud = { [path]: raw }; revs = {}

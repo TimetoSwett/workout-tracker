@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout } from '../types'
 import { getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
@@ -6,6 +6,8 @@ import { dropboxConfigured } from '../dropbox'
 import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { RestTimer } from './RestTimer'
+import { armRestAlert, type AlertOutcome } from '../restAlert'
+import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
 
 const PUMP_VALUES = [0, 1, 2]
@@ -13,6 +15,15 @@ const SORENESS_VALUES = [-1, 0, 1, 2, 3]
 const WORKLOAD_VALUES = [0, 1, 2, 3]
 
 type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number }>
+
+/** The one channel that always arrives. A chime can be blocked by autoplay policy and a buzz
+ *  can be swallowed by the platform, so when neither got through the timer status says so instead of
+ *  implying the rest quietly ended on its own. */
+function restDoneStatus(o: AlertOutcome): string {
+  if (o.sound === 'played') return 'Rest done 💪'
+  if (o.vibration === 'sent') return 'Rest done 💪 — buzz only, no sound here'
+  return 'Rest done 💪 — no sound or buzz on this device'
+}
 
 export function LogView() {
   const { active, settings, workouts, templates, mesocycles } = useStore()
@@ -36,18 +47,31 @@ export function LogView() {
     return Math.max(0, Math.ceil((active.restEndsAt - Date.now()) / 1000))
   }, [active, tick])
 
-  useEffect(() => {
-    if (restLeft === 0 && active?.restEndsAt) {
-      if ('vibrate' in navigator) navigator.vibrate?.(400)
-      patch((a) => ({ ...a, restEndsAt: undefined }))
-    }
-  }, [restLeft])
+  /** The expiry itself — the alert, and clearing the stored deadline — belongs to
+   *  `restWatch`, which keeps running while this view is unmounted. All this does is paint
+   *  the outcome of the last rest that ran out, which is still worth reading on return from
+   *  another tab, especially when neither the chime nor the buzz could be delivered.
+   *
+   *  `subscribeRestDone` delivers whatever is already recorded as it attaches, which covers a
+   *  rest that runs out between this render and this effect — the ordinary case when the app
+   *  opens on a deadline that has only just passed. */
+  const [done, setDone] = useState(restDone())
+  useEffect(() => subscribeRestDone(() => setDone(restDone())), [])
+  const restStatus = done ? restDoneStatus(done.outcome) : ''
 
   const elapsed = useMemo(() => {
     void tick
     if (!active) return 0
     return Math.floor((Date.now() - active.startedAt) / 60000)
   }, [active, tick])
+
+  /** One timer, not one per toast, so a new message gets its full display time. */
+  const toastTimer = useRef(0)
+  function showToast(message: string) {
+    setToast(message)
+    clearTimeout(toastTimer.current)
+    toastTimer.current = setTimeout(() => setToast(''), 2500) as unknown as number
+  }
 
   /** Reads the live store rather than the render-time `active`. Two patches in one
    *  handler both build from the same snapshot otherwise, and the second silently
@@ -118,6 +142,9 @@ export function LogView() {
     const set = getState().active?.exercises[exIdx]?.sets[setIdx]
     if (!set) return
     const done = !set.done
+    // This tap is the user gesture that lets the completion chime play when the rest it starts
+    // runs out, minutes later and with no gesture of its own. Nothing is heard now.
+    if (done) armRestAlert()
     patch((a) => ({
       ...a,
       exercises: a.exercises.map((ex, i) =>
@@ -136,9 +163,8 @@ export function LogView() {
     setConfirmDiscard(false)
     setPendingFinish(null)
     setFeedback(null)
-    setToast('Workout saved ✓')
+    showToast('Workout saved ✓')
     if (dropboxConfigured(settings)) sync()
-    setTimeout(() => setToast(''), 2500)
   }
 
   function finish() {
@@ -152,8 +178,7 @@ export function LogView() {
     if (trimmed.exercises.length === 0) {
       setActive(null)
       setConfirmDiscard(false)
-      setToast('Nothing logged — workout discarded')
-      setTimeout(() => setToast(''), 2500)
+      showToast('Nothing logged — workout discarded')
       return
     }
     if (trimmed.mesoId) {
@@ -194,8 +219,7 @@ export function LogView() {
     }
     setTemplates([...templates, t])
     patch((a) => ({ ...a, name }))
-    setToast(`Template “${name}” saved`)
-    setTimeout(() => setToast(''), 2500)
+    showToast(`Template “${name}” saved`)
   }
 
   if (feedback && pendingFinish) {
@@ -323,7 +347,19 @@ export function LogView() {
   }
 
   return (
-    <div class="view cols">
+    <div class="active-log">
+      {/* Rendered unconditionally: `restLeft` is already 0 when no rest is running, and the
+          strip keeps its height in that state so starting or ending rest moves nothing. */}
+      <RestTimer
+        secondsLeft={restLeft}
+        status={restStatus}
+        total={active.restTotal ?? settings.restSeconds}
+        onAdd={(s) =>
+          patch((a) => ({ ...a, restEndsAt: (a.restEndsAt ?? Date.now()) + s * 1000, restTotal: (a.restTotal ?? 0) + s }))
+        }
+        onStop={() => patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))}
+      />
+    <div class="view log-scroll">
       <div class="log-header">
         <div>
           <div class="log-title">{active.name ?? 'Workout'}</div>
@@ -454,18 +490,7 @@ export function LogView() {
           </button>
         )}
       </div>
-
-      {restLeft > 0 && active?.restEndsAt && (
-        <RestTimer
-          secondsLeft={restLeft}
-          total={active.restTotal ?? settings.restSeconds}
-          onAdd={(s) =>
-            patch((a) => ({ ...a, restEndsAt: (a.restEndsAt ?? Date.now()) + s * 1000, restTotal: (a.restTotal ?? 0) + s }))
-          }
-          onStop={() => patch((a) => ({ ...a, restEndsAt: undefined, restTotal: undefined }))}
-        />
-      )}
-
+    </div>
       {picker != null && <ExercisePicker onPick={pickExercise} onClose={() => setPicker(null)} />}
       {toast && <div class="toast">{toast}</div>}
     </div>

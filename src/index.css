@@ -239,6 +239,8 @@ button {
   align-items: center;
   gap: 2px;
   cursor: pointer;
+  /* Anchors the active-tab rule below. */
+  position: relative;
 }
 
 .tab-icon {
@@ -246,8 +248,32 @@ button {
   line-height: 1;
 }
 
+/* The accent on the active button only ever reached the caption: the icons are emoji, and a
+   colour-font glyph ignores `color`. So in `.logging.compact`, which zeroes the caption to buy
+   vertical space, nothing marked the selected tab at all.
+
+   Mark it with geometry and saturation instead of text colour, both of which survive a zeroed
+   font size and cost no vertical space: an accent rule drawn over the bar's own top border, and
+   desaturated icons on every tab but the active one. */
 .tabbar button.active {
   color: var(--accent);
+}
+
+.tabbar button.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 26px;
+  margin-left: -13px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+}
+
+.tabbar button:not(.active) .tab-icon {
+  filter: grayscale(1);
+  opacity: 0.6;
 }
 
 .log-header {
@@ -496,22 +522,13 @@ button {
 }
 
 .rest-timer {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(72px + env(safe-area-inset-bottom));
-  width: calc(100% - 28px);
-  max-width: 492px;
+  flex: none;
+  width: 100%;
   background: var(--card);
   border: 1px solid var(--accent-dim);
   border-radius: var(--radius);
   padding: 12px 16px;
-  z-index: 40;
   text-align: center;
-}
-
-.rest-timer.done {
-  border-color: var(--accent);
 }
 
 .rest-label {
@@ -521,10 +538,6 @@ button {
   letter-spacing: 0.1em;
 }
 
-.rest-timer.done .rest-label {
-  color: var(--accent);
-}
-
 .rest-time {
   font-size: 2rem;
   font-weight: 700;
@@ -532,16 +545,12 @@ button {
   margin: 2px 0;
 }
 
-.rest-timer.done .rest-time {
-  color: var(--accent);
-}
-
 .rest-bar {
   height: 4px;
   background: var(--card-2);
   border-radius: 2px;
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-top: 6px;
 }
 
 .rest-fill {
@@ -1150,3 +1159,56 @@ code {
   background: var(--accent);
   transition: width 0.2s linear;
 }
+
+/* Reserve timer space outside the scrolling set editor. No overlay or sticky
+   element can cover focused fields, including when the viewport shrinks. */
+.app.logging { height: 100dvh; min-height: 0; }
+.logging main { display: flex; flex-direction: column; min-height: 0; }
+.active-log { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; }
+.log-scroll { overflow-y: auto; min-height: 0; padding-bottom: 12px; }
+.active-log .rest-timer { max-width: none; padding: 8px; }
+.rest-summary { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rest-summary .rest-time { font-size: 1.25rem; }
+.rest-summary .rest-actions { flex: none; }
+.rest-summary button { flex-shrink: 0; }
+/* Use the existing timer row for completion, never the editor's space. Keep the
+   controls in layout so expiry cannot change the row height, even with a keyboard. */
+.rest-summary.has-status > :not(.rest-status) { visibility: hidden; }
+.rest-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.logging .tabbar { position: static; transform: none; flex: none; }
+.logging main { padding-bottom: 12px; overflow: auto; }
+
+/* Landscape with the keyboard up is the tightest posture the app has. Reserving the timer's
+   space fixed the overlap, but at a 214px visual viewport the fixed bands — 49px of timer, 22px
+   of page padding, 54px of tab bar — left the set editor 67px, a single row. Nothing was
+   covered or unreachable; it was just unusable.
+
+   Trim every band a little rather than drop one outright, so no affordance disappears and the
+   change reverses the moment the keyboard closes: the timer loses its "REST" caption (the big
+   countdown already says what it is), the tab bar keeps its icons but not its captions, and the
+   page padding and gaps shrink. That roughly doubles the editor. Paired with the explicit
+   reveal-on-resize in app.tsx, the row being typed into is scrolled into that space. */
+.app.logging.compact main { padding-top: calc(6px + var(--safe-top)); padding-bottom: 6px; }
+.app.logging.compact .active-log { gap: 6px; }
+.app.logging.compact .active-log .rest-timer { padding: 3px 8px; }
+.app.logging.compact .rest-label { display: none; }
+.app.logging.compact .log-header { margin-bottom: 6px; }
+/* Zeroing the button font size drops the caption text node, which has no element to target;
+   the icon sets its own size in rem so it is unaffected, and the caption stays in the
+   accessibility tree. Needs the #app prefix to out-specify `#app .tabbar button` above.
+   The selected tab does not ride on the caption — see the active rule and the desaturated
+   inactive icons near `.tabbar button.active` — so zeroing it here loses no affordance. */
+#app .logging.compact .tabbar button { padding: 5px 0 6px; gap: 0; font-size: 0; }
+#app .logging.compact .tabbar .tab-icon { font-size: 1.15rem; }
