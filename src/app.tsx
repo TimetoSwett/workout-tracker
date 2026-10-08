@@ -21,6 +21,18 @@ type Tab = 'log' | 'history' | 'insights' | 'body' | 'meso' | 'activity' | 'sett
 
 const DEFAULT_TAB: Tab = 'log'
 
+/** Tab bar order, left to right. Kept as a table so the active-tab wiring — the `active` class
+ *  and `aria-current` — stays in one place instead of being repeated per button. */
+const TABS: { id: Tab; icon: string; caption: string }[] = [
+  { id: 'log', icon: '🏋️', caption: 'Log' },
+  { id: 'meso', icon: '📅', caption: 'Plan' },
+  { id: 'history', icon: '📊', caption: 'History' },
+  { id: 'insights', icon: '🧠', caption: 'Coach' },
+  { id: 'activity', icon: '🧗', caption: 'Activity' },
+  { id: 'body', icon: '⚖️', caption: 'Body' },
+  { id: 'settings', icon: '⚙️', caption: 'Settings' },
+]
+
 /** Below this the fixed bands around the set editor (timer, page padding, tab bar) eat more of
  *  the box than the rows do — 214px of visual viewport left a 67px editor, one set row. That is
  *  landscape with the on-screen keyboard up; portrait with the keyboard up still has ~460px and
@@ -131,27 +143,19 @@ export function App() {
         {tab === 'settings' && <SettingsView />}
       </main>
       <nav class="tabbar">
-        <button class={tab === 'log' ? 'active' : ''} onClick={() => setTab('log')}>
-          <span class="tab-icon">🏋️</span>Log
-        </button>
-        <button class={tab === 'meso' ? 'active' : ''} onClick={() => setTab('meso')}>
-          <span class="tab-icon">📅</span>Plan
-        </button>
-        <button class={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>
-          <span class="tab-icon">📊</span>History
-        </button>
-        <button class={tab === 'insights' ? 'active' : ''} onClick={() => setTab('insights')}>
-          <span class="tab-icon">🧠</span>Coach
-        </button>
-        <button class={tab === 'activity' ? 'active' : ''} onClick={() => setTab('activity')}>
-          <span class="tab-icon">🧗</span>Activity
-        </button>
-        <button class={tab === 'body' ? 'active' : ''} onClick={() => setTab('body')}>
-          <span class="tab-icon">⚖️</span>Body
-        </button>
-        <button class={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}>
-          <span class="tab-icon">⚙️</span>Settings
-        </button>
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            class={tab === t.id ? 'active' : ''}
+            /* The caption survives a zeroed font size in the a11y tree, but nothing announced
+               which tab was current. `aria-current` does, in compact and otherwise. */
+            aria-current={tab === t.id ? 'page' : undefined}
+            onClick={() => setTab(t.id)}
+          >
+            <span class="tab-icon">{t.icon}</span>
+            {t.caption}
+          </button>
+        ))}
       </nav>
     </div>
   )
