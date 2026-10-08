@@ -167,54 +167,105 @@ refuse a downgrade — but they do cache.
 
 - **Production** is two surfaces, and neither is moved by a branch.
   `workout.tucker-swett.com` is a custom domain bound to the `workout-tracker`
-  Worker, published **by hand** with `npx wrangler deploy` from the board's own
-  authenticated machine. **GitHub Pages**
-  (`timetoswett.github.io/workout-tracker/`) is published by
-  `.github/workflows/deploy.yml` on pushes to `main`. So "recovery" for both is:
-  do not merge, and do not run a hand deploy off a candidate tree. As of this
-  writing production serves `2026.10.06.ef8be3e` / 213457601 — the shipped
-  stable commit.
-- **Nothing publishes a preview automatically. Do not assume a branch has one.**
-  Verified 2026-10-08 (TOM-87): the Worker has no Workers Builds git connection
-  and no build history, the account has no Pages project, no workflow touches
-  Cloudflare, and no agent run holds a Cloudflare credential — every version of
-  the Worker was authored from the board's own machine. Every preview URL quoted
-  in this file was made by hand. An earlier revision of this section claimed
-  "Workers Builds publishes a preview per branch"; that was never true, and the
-  `git push <sha>:refs/heads/preview/<short-sha>` recipe it recommended produces
-  a branch, not a preview.
+  Worker. **GitHub Pages** (`timetoswett.github.io/workout-tracker/`) is
+  published by `.github/workflows/deploy.yml` on pushes to `main`. The Worker
+  side was, until 2026-10-08, *also* published automatically from `main`: its
+  Workers Builds production trigger ran `npx wrangler deploy`, which both
+  uploads a version and shifts 100% of traffic to it. On 2026-10-08 that trigger
+  was changed to `npx wrangler versions upload`, which uploads without
+  deploying — so pushes to `main` no longer move `workout.tucker-swett.com`, and
+  the Worker side of production now needs an explicit deploy (dashboard, or
+  `npx wrangler versions deploy`). Check which of those two states is current
+  before reasoning about what production serves. "Recovery" for both surfaces is
+  the same: do not merge a candidate tree, and do not deploy a version built
+  from one.
 
-  The board accepted connecting Workers Builds to the repo on 2026-10-08, which
-  will make branch pushes publish previews on their own. Until that connection
-  exists and a branch build has been seen to pass, treat a preview as something a
-  human has to publish, from a checkout of the commit under test:
+  As of 2026-10-08 both surfaces serve `2026.10.08.ebd44da` — `main`'s head, the
+  merge of PR #29. They report different bundle filenames
+  (`assets/index-C-FBFX_J.js` on the custom domain,
+  `assets/index-DGjX66H1.js` on Pages) because Pages builds under a different
+  base path. **Compare the self-reported version, not the bundle filename, when
+  checking whether the two surfaces agree** — the filenames differ by design and
+  will look like divergence if you read them as identity.
+- **Branch previews are published automatically, by Workers Builds.** Verified
+  end to end on 2026-10-08 (TOM-87) by pushing a new branch and watching it:
+  the Worker has a GitHub App repository connection to
+  `TimetoSwett/workout-tracker` (connected 2026-09-28), `previews_enabled` is
+  true, and Cloudflare creates a per-branch preview with `auto_build: true` for
+  every branch it sees — a brand-new branch's build started **6 seconds** after
+  the push and finished in ~40s. Each preview build runs `npm run build` then
+  `npx wrangler preview`, and the resulting hostname serves that exact commit.
+  No human step, no stored secret, no workflow.
+
+  The proof branch is `ci/tom87-preview-proof` (commit `896c487`). Its preview,
+  `https://ci-tom87-preview-proof-workout-tracker.tuckerswett.workers.dev`,
+  self-reports `2026.10.08.896c487` and serves `/tom87-preview-proof.txt`, a
+  marker file that exists only on that commit. Re-run that check any time the
+  channel is in doubt: push a branch carrying a unique marker, then assert both
+  the marker and the self-reported version.
+
+  So the `preview/<short-sha>` branch recipe this file originally recommended
+  **does** work, and for the reason it claimed: the preview alias is the branch
+  name slugified, so pushing `<sha>:refs/heads/preview/<short-sha>` yields
+  `preview-<short-sha>-workout-tracker.tuckerswett.workers.dev`, and because
+  nothing ever pushes to that branch again the alias never moves. That is where
+  the existing `preview-c602979` and `preview-f836d1e` aliases came from.
+
+  A revision of this section dated 2026-10-08 (TOM-87's first pass) claimed the
+  opposite — that nothing published previews and every URL here was hand-made.
+  That was wrong, and the way it went wrong is worth recording, because the
+  check looks authoritative and is not. It queried
+  `GET /accounts/:id/builds/workers/workout-tracker/builds` and got `[]`.
+  **That endpoint keys on the Worker's `script_tag`, not its name**, so passing
+  a script name returns an empty list whether or not builds exist. The same
+  false negative is available from `/builds/workers/<name>/triggers`. Use the
+  tag (`05c689ac575544b0bdb927be01e80498` for this Worker); with the tag the
+  same endpoints return 15 production builds and 41 branch previews.
+
+  To find a branch's preview without the dashboard:
+
+  ```sh
+  # The branch-alias hostname is the branch name slugified: / and . -> -
+  #   ci/tom87-preview-proof -> ci-tom87-preview-proof
+  curl -sI https://<branch-slug>-workout-tracker.tuckerswett.workers.dev
+  ```
+
+  The Workers Builds GitHub **check run** on the commit confirms the build
+  passed and links the dashboard build page, but it does **not** carry either
+  URL — so the alias is derivable from the branch name, while the pinned URL has
+  to be read out of the build log.
+- A candidate is reachable only through its own Cloudflare preview, on a hostname
+  separate from production. A preview comes in two forms, and a branch build
+  prints both:
+
+  - `https://<version-prefix>-workout-tracker.tuckerswett.workers.dev` is the
+    **Unique Deployment URL**: pinned to one version, never moves. This is the
+    form to quote in a QA handoff. It appears only in the build log's
+    `Unique Deployment URL:` line (or `npx wrangler versions upload`'s output
+    for a hand upload) — the prefix is not derivable from the branch or the sha.
+  - `https://<branch-slug>-workout-tracker.tuckerswett.workers.dev` is the
+    **Preview URL**: a named alias. A branch build re-points it on every push,
+    so it names a commit only until the next push to that branch. Convenient to
+    guess, unsafe to pin a handoff to.
+
+  Neither form can reach production: the custom domain has previews disabled,
+  and neither `wrangler preview` nor `versions upload` changes the live
+  deployment.
+
+  To mint a commit-named alias that is immovable by construction, push the
+  commit to a branch named after it and never push to that branch again:
+
+  ```sh
+  git push origin <sha>:refs/heads/preview/<short-sha>
+  ```
+
+  For a tree that is not going to a branch at all, a hand upload from an
+  authenticated machine gives the same shape:
 
   ```sh
   npm run build
   npx wrangler versions upload --preview-alias preview-<short-sha>
   ```
-
-  Note also that `wrangler.jsonc` is **not on `main`** yet — it arrives with
-  PR #29 — so a branch cut from `main` without it cannot be previewed
-  reproducibly.
-- A candidate is reachable only through its own Cloudflare preview, on a hostname
-  separate from production. A preview comes in two forms:
-
-  - `https://<version-prefix>-workout-tracker.tuckerswett.workers.dev` is pinned
-    to one version and never moves. `npx wrangler versions upload` prints it, so
-    it exists for every uploaded version, but the prefix is otherwise only
-    visible in the Cloudflare dashboard — a GitHub check run does not carry it.
-  - `https://<alias>-workout-tracker.tuckerswett.workers.dev` is a named alias,
-    created by `npx wrangler versions upload --preview-alias <alias>` (and, once
-    Workers Builds is connected, by a branch build using the branch name). An
-    alias is **repointable**: it serves whatever version was last uploaded under
-    that name, so it names a commit only as long as nobody re-uploads it.
-
-  The aliases below look branch-shaped because the hand upload was given an alias
-  matching the branch; naming it after the commit and never re-uploading it is
-  what makes them trustworthy. Neither form can reach production: the custom
-  domain has previews disabled, and `versions upload` never changes the live
-  deployment.
 
   The current candidate's alias is
   `https://preview-c602979-workout-tracker.tuckerswett.workers.dev`, serving
@@ -229,8 +280,8 @@ refuse a downgrade — but they do cache.
   Settings → About and refuse to continue unless it is the expected commit (see
   `tests/tom61-preview-verify.qa.mjs`). A URL is a convenience; the self-reported
   version is the attribution.
-- The v0.3.0 code is on the web too, at an alias uploaded by hand for the
-  recovery branch —
+- The v0.3.0 code is on the web too, at the alias its recovery branch's own
+  preview build published —
   `https://release-tom67-recovery-v030-workout-tracker.tuckerswett.workers.dev`
   (bundle `assets/index-CZRxuw5w.js`, reporting `2026.10.07.53ef15c`). That is
   the web counterpart of the recovery APK — same bundle filename the recovery
