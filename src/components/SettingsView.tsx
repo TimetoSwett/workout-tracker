@@ -9,7 +9,6 @@ import { syncCoach } from '../coachStore'
 import { clearMetrics } from '../metricsStore'
 import { aiChat } from '../ai'
 import { isNative, openExternal } from '../native'
-import { armRestAlert, describeOutcome, playRestAlert, soundSupported, vibrationSupported } from '../restAlert'
 import { useUpdateController } from '../useUpdate'
 import { APP_VERSION, APP_VERSION_CODE } from '../version'
 import type { Units } from '../units'
@@ -68,7 +67,6 @@ export function SettingsView() {
   const [hcPermissions, setHcPermissions] = useState<HealthConnectPermissionResult | null>(null)
   const [hcBusy, setHcBusy] = useState(false)
   const [hcStatus, setHcStatus] = useState('')
-  const [alertStatus, setAlertStatus] = useState('')
 
   useEffect(() => {
     if (!isHealthConnectSupported()) return
@@ -248,31 +246,6 @@ export function SettingsView() {
           />
           <span class="muted">sec</span>
         </div>
-        <div class="setting-row">
-          <span>Rest end alert</span>
-          <button
-            class="btn small"
-            onClick={() => {
-              // Arming and playing in the same tap: this is the one place where the gesture
-              // that unlocks audio is also the gesture asking to hear it.
-              armRestAlert()
-              setAlertStatus(describeOutcome(playRestAlert()))
-            }}
-          >
-            Test
-          </button>
-        </div>
-        {alertStatus ? (
-          <p class="muted small">{alertStatus}</p>
-        ) : (
-          <p class="muted small">
-            A chime and a buzz when a rest runs out, plus an on-screen message that shows even when
-            neither of those gets through. {soundSupported() ? 'Audio available' : 'No audio support here'} ·{' '}
-            {vibrationSupported() ? 'vibration available' : 'no vibration support here'}. Tap Test to hear
-            what the end of a rest sounds like; the first tap of a session is also what unlocks sound.
-            Nothing arrives while the app is closed or the screen is locked.
-          </p>
-        )}
       </div>
 
       <div class="card">
@@ -597,7 +570,7 @@ export function SettingsView() {
 }
 
 /** Answers "am I on the fix?" without guessing, and lets the board force an update check instead
- *  of waiting for the throttled launch one (TOM-2). APP_VERSION comes from the commit/tag via a
+ *  of waiting for the throttled launch one (TOM-2). APP_VERSION comes from package.json via a
  *  Vite define, and android/app/build.gradle derives versionName from the same value, so this
  *  string is the version of the artifact rather than a hand-maintained copy of it. */
 function AboutCard() {
