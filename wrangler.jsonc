@@ -19,15 +19,27 @@
   "assets": {
     "directory": "./dist",
     // The app is a client-routed SPA; unknown paths must return index.html
-    // rather than a 404.
+    // rather than a 404. This holds on production, which has no script and so
+    // lets the asset router answer a miss. It does NOT hold on a preview --
+    // see the `previews` note below.
     "not_found_handling": "single-page-application"
   },
 
   // Required by `wrangler preview` (the Workers Builds branch-preview deploy
   // command) even when previews need no settings of their own. This Worker
-  // has no vars or bindings, so there is nothing to override here; leaving
-  // the block empty means a preview runs with the same top-level assets and
-  // compatibility settings as production.
+  // has no vars or bindings, so there is nothing to override here.
+  //
+  // An empty block does NOT mean "a preview behaves like production". The
+  // block only accepts bindings and runtime settings -- never asset config, so
+  // `not_found_handling` cannot be set or overridden here at all (Wrangler
+  // 4.145.0: `Unexpected fields found in previews field`). A preview inherits
+  // the value and ignores it: because the Previews API needs a script and this
+  // Worker has none, `wrangler preview` uploads Wrangler's
+  // `templates/no-op-worker.js`, and a miss hits that 404 stub instead of the
+  // asset router. So every non-root path 404s on a preview while production
+  // serves index.html. Harmless today (no URL routes; QA enters at `/`), and
+  // load-bearing the moment a real route exists.
+  // Measured 2026-10-09, TOM-94; details in docs/release-recovery.md.
   // https://developers.cloudflare.com/workers/previews/configuration/
   "previews": {}
 }

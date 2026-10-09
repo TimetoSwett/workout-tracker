@@ -223,7 +223,13 @@ refuse a downgrade — but they do cache.
   name slugified, so pushing `<sha>:refs/heads/preview/<short-sha>` yields
   `preview-<short-sha>-workout-tracker.tuckerswett.workers.dev`, and because
   nothing ever pushes to that branch again the alias never moves. That is where
-  the existing `preview-c602979` and `preview-f836d1e` aliases came from.
+  the existing `preview-c602979` and `preview-f836d1e` aliases came from, and
+  `preview-326b92e` was published the same way on 2026-10-09 for TOM-93 — the
+  push auto-created the trigger and the build finished in about 30s, with no
+  credential held by the agent that pushed it. All three are visible as
+  Previews named `preview/<short-sha>` in
+  `GET /accounts/:id/workers/workers/<script_tag>/previews`, which is the
+  cheapest way to confirm an alias exists without guessing at its hostname.
 
   A revision of this section dated 2026-10-08 (TOM-87's first pass) claimed the
   opposite — that nothing published previews and every URL here was hand-made.
@@ -234,7 +240,9 @@ refuse a downgrade — but they do cache.
   a script name returns an empty list whether or not builds exist. The same
   false negative is available from `/builds/workers/<name>/triggers`. Use the
   tag (`05c689ac575544b0bdb927be01e80498` for this Worker); with the tag the
-  same endpoints return 15 production builds and 41 branch previews.
+  same endpoints returned 15 production builds and 41 branch previews on
+  2026-10-08, and 46 previews on 2026-10-09. Those counts only ever grow, so
+  read them as "not empty", not as a fixture to assert against.
 
   To find a branch's preview without the dashboard:
 
@@ -266,6 +274,54 @@ refuse a downgrade — but they do cache.
   and neither `wrangler preview` nor `versions upload` changes the live
   deployment.
 
+  **A preview does not do SPA fallback, and production does.** Measured
+  2026-10-09 (TOM-94): `workout.tucker-swett.com/settings` returns 200 and
+  `index.html`, while the same path on both preview forms of `326b92e` —
+  the alias `preview-326b92e-…` and its Unique Deployment URL
+  `74f85397-…` — returns 404. Same for `/a/b/c` and `/nope.html`; only `/`
+  works. `preview-c602979`, which QA already passed, behaves the same way, so
+  this is not new and not specific to one build.
+
+  It is **not** an inheritance failure, which is the obvious guess and is
+  wrong. The preview deployment really does carry the setting: `GET
+  /accounts/:id/workers/workers/<script_tag>/previews/<id>/deployments/<id>`
+  reports `assets.config.not_found_handling: "single-page-application"`. The
+  setting is inherited and inert. What differs is who answers a miss:
+
+  - Production has **no Worker script** (`has_modules: false`, and the version's
+    `script_runtime.assets` shows `serve_directly: true`). With no entrypoint,
+    the asset router itself handles a miss, so `not_found_handling` applies and
+    `index.html` comes back.
+  - A preview has one. The Previews API requires a script, and this repo's
+    Worker is assets-only, so `wrangler preview` supplies Wrangler's stub —
+    the preview deployment reports `main_module: "no-op-worker.js"` with
+    `run_worker_first: false`. Assets that exist are still served, but a miss
+    falls through to that stub instead of to the asset router, and
+    `node_modules/wrangler/templates/no-op-worker.js` answers every request
+    with a 404. That is the response on the wire exactly: status 404,
+    `content-type: text/html`, 9 bytes, body `Not found`.
+
+  So it cannot be fixed from `previews`. That block takes bindings and runtime
+  settings only — no asset config. Wrangler 4.145.0 rejects both spellings at
+  config-validation time, which `wrangler deploy --dry-run` will show you
+  without deploying anything:
+
+  ```
+  - Unexpected fields found in previews field: "not_found_handling"
+  - Unexpected fields found in previews field: "assets"
+  ```
+
+  Treat it as a Cloudflare-side limitation of `wrangler preview` on an
+  assets-only Worker. Closing it would mean giving the Worker a real `main` that
+  serves the fallback itself — a production architecture change, and Lord Soth's
+  call, not a preview tweak. It is worth doing only if it stops costing nothing:
+  today the app is a tab-state SPA with no URL routes, nothing ever links to a
+  non-root path, and QA enters every preview at `/`, which is why this never
+  surfaced. If a real route is ever added, this stops being cosmetic and a
+  preview will diverge from production on exactly the paths under test.
+  Re-measure after any Wrangler bump (4.149.0 was current on 2026-10-09) before
+  assuming it still holds.
+
   To mint a commit-named alias that is immovable by construction, push the
   commit to a branch named after it and never push to that branch again:
 
@@ -280,6 +336,21 @@ refuse a downgrade — but they do cache.
   npm run build
   npx wrangler versions upload --preview-alias preview-<short-sha>
   ```
+
+  Prefer the branch push. It needs no credential at all, which matters because
+  the credential question here is easy to get wrong in the direction of
+  "no agent can do this" (TOM-94):
+
+  - There is no Cloudflare credential in the environment.
+    `GET /api/agents/me/secrets` is empty and `cf auth whoami` reports not
+    logged in, so `wrangler` subcommands that need auth — `versions upload`,
+    `versions deploy`, `preview` — will not run from an agent host.
+  - But the Cloudflare **API** is reachable from an agent run, through the
+    assigned Cloudflare MCP server, which carries its own authorized session
+    for account `670bd9fa…`. Everything in this section that reads build
+    triggers, builds, previews, versions, or preview deployments was measured
+    that way. So "`cf` is not logged in" is not the same claim as "no agent can
+    see Cloudflare", and it is never grounds to escalate a read to the board.
 
   The current candidate's alias is
   `https://preview-c602979-workout-tracker.tuckerswett.workers.dev`, serving
