@@ -5,6 +5,7 @@ import { setWorkouts } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
+import { beatsRecord, estimate1RM, scoringSets, type RecordSet } from '../records'
 import { localDate } from '../dates'
 
 function startOfWeek(d: Date): Date {
@@ -44,23 +45,21 @@ export function HistoryView() {
 
   /** Ranked by estimated 1RM, not raw weight: raw weight puts every machine and every
    *  bodyweight-loaded movement above real barbell lifts, and ignores how many reps the
-   *  set was. Pinned lifts always show regardless of where they rank. */
+   *  set was. Pinned lifts always show regardless of where they rank. Eligibility and the
+   *  tiebreak come from `records` so this agrees with what the coach is told. */
   const prs = useMemo(() => {
-    const best = new Map<string, { weight: number; reps: number; date: string; e1rm: number }>()
-    for (const w of workouts) {
-      for (const ex of w.exercises) {
-        for (const s of ex.sets) {
-          if (s.weight == null || s.reps == null || s.weight <= 0 || s.reps <= 0) continue
-          if (s.status === 'skipped') continue
-          const e1rm = s.weight * (1 + s.reps / 30)
-          const cur = best.get(ex.name)
-          if (!cur || e1rm > cur.e1rm) {
-            best.set(ex.name, { weight: s.weight, reps: s.reps, date: w.date, e1rm })
-          }
-        }
+    const best = new Map<string, RecordSet>()
+    for (const { name, set, date } of scoringSets(workouts)) {
+      const cand: RecordSet = {
+        weight: set.weight!,
+        reps: set.reps!,
+        date,
+        e1rm: estimate1RM(set.weight!, set.reps!),
       }
+      if (beatsRecord(cand, best.get(name))) best.set(name, cand)
     }
-    return [...best.entries()].sort((a, b) => b[1].e1rm - a[1].e1rm)
+    // Name breaks a tie between two exercises so the list order cannot flap either.
+    return [...best.entries()].sort((a, b) => b[1].e1rm - a[1].e1rm || a[0].localeCompare(b[0]))
   }, [workouts])
 
   const pinned = settings.keyLifts ?? []

@@ -2,17 +2,17 @@ import type { CoachMemory, DailyMetric, LoggedExercise, Mesocycle, Philosophy, P
 import { MUSCLE_GROUPS } from './types'
 import { muscleGroupName } from './mesoEngine'
 import { compileMetrics, nutritionBlock } from './nutrition'
+import { beatsRecord, estimate1RM, isScoringSet, scoringSets, type RecordSet } from './records'
 
-/** Heaviest completed set of an exercise by estimated 1RM (Epley), for load-trend reporting. */
-function bestSet(ex: LoggedExercise): { w: number; r: number; e1rm: number } | undefined {
-  let best: { w: number; r: number; e1rm: number } | undefined
+/** Heaviest completed set of an exercise by estimated 1RM (Epley), for load-trend reporting.
+ *  Eligibility is `isScoringSet` — the same rule Best lifts uses — so the trend the coach
+ *  reads and the record the board sees can never be drawn from different sets. */
+function bestSet(ex: LoggedExercise): RecordSet | undefined {
+  let best: RecordSet | undefined
   for (const s of ex.sets) {
-    if (s.status === 'skipped') continue
-    const w = s.weight
-    const r = s.reps
-    if (w == null || r == null || r <= 0) continue
-    const e1rm = w * (1 + r / 30)
-    if (!best || e1rm > best.e1rm) best = { w, r, e1rm }
+    if (!isScoringSet(s)) continue
+    const cand: RecordSet = { weight: s.weight!, reps: s.reps!, e1rm: estimate1RM(s.weight!, s.reps!) }
+    if (beatsRecord(cand, best)) best = cand
   }
   return best
 }
@@ -44,10 +44,7 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
 
   // Per-exercise load trends (best set, est 1RM via Epley, first → last in
   // this window) so the coach sees progression directly.
-  const byExercise = new Map<
-    string,
-    { first?: { w: number; r: number; e1rm: number }; last?: { w: number; r: number; e1rm: number } }
-  >()
+  const byExercise = new Map<string, { first?: RecordSet; last?: RecordSet }>()
   for (const w of workouts) {
     for (const ex of w.exercises) {
       const best = bestSet(ex)
@@ -62,7 +59,7 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
     .filter(([, e]) => e.first && e.last && e.first.e1rm !== e.last.e1rm)
     .map(
       ([name, e]) =>
-        `${name}: est 1RM ${Math.round(e.first!.e1rm)} → ${Math.round(e.last!.e1rm)} ${settings.units} (${e.first!.w}x${e.first!.r} → ${e.last!.w}x${e.last!.r})`,
+        `${name}: est 1RM ${Math.round(e.first!.e1rm)} → ${Math.round(e.last!.e1rm)} ${settings.units} (${e.first!.weight}x${e.first!.reps} → ${e.last!.weight}x${e.last!.reps})`,
     )
   if (trends.length) {
     lines.push('\n# LOAD TRENDS (best set per exercise, est 1RM, first → last in this window)')
@@ -239,7 +236,6 @@ Respond with ONLY the updated facts as a JSON array of strings.`
 export function compileHistorySummary(workouts: Workout[], settings: Settings): string {
   if (!workouts.length) return ''
   const months = new Map<string, { sessions: number; sets: number; reps: number[]; heavy: number }>()
-  const best = new Map<string, { w: number; r: number; e1rm: number; date: string }>()
   for (const w of workouts) {
     const key = w.date.slice(0, 7)
     const m = months.get(key) ?? { sessions: 0, sets: 0, reps: [], heavy: 0 }
@@ -250,12 +246,18 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
         m.sets++
         m.reps.push(s.reps)
         if (s.reps <= 6) m.heavy++
-        const e1rm = s.weight * (1 + s.reps / 30)
-        const cur = best.get(ex.name)
-        if (!cur || e1rm > cur.e1rm) best.set(ex.name, { w: s.weight, r: s.reps, e1rm, date: w.date })
       }
     }
     months.set(key, m)
+  }
+
+  // All-time bests run off `scoringSets`, not the rollup's filter above: the rollup is
+  // counting work done and tolerates a missing completion flag, but an all-time max the
+  // coach prescribes against must be a set that was actually completed.
+  const best = new Map<string, RecordSet>()
+  for (const { name, set, date } of scoringSets(workouts)) {
+    const cand: RecordSet = { weight: set.weight!, reps: set.reps!, date, e1rm: estimate1RM(set.weight!, set.reps!) }
+    if (beatsRecord(cand, best.get(name))) best.set(name, cand)
   }
   const median = (xs: number[]) => {
     if (!xs.length) return 0
@@ -271,10 +273,10 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
     const pct = m.sets ? Math.round((100 * m.heavy) / m.sets) : 0
     lines.push(`${key} | ${m.sessions} | ${m.sets} | ${median(m.reps)} | ${pct}%`)
   }
-  const top = [...best.entries()].sort((a, b) => b[1].e1rm - a[1].e1rm).slice(0, 20)
+  const top = [...best.entries()].sort((a, b) => b[1].e1rm - a[1].e1rm || a[0].localeCompare(b[0])).slice(0, 20)
   lines.push('\n# ALL-TIME BEST ESTIMATED 1RM (top 20 exercises)')
   for (const [name, b] of top) {
-    lines.push(`${name}: ${Math.round(b.e1rm)}${settings.units} (${b.w}x${b.r} on ${b.date})`)
+    lines.push(`${name}: ${Math.round(b.e1rm)}${settings.units} (${b.weight}x${b.reps} on ${b.date})`)
   }
   return lines.join('\n')
 }
