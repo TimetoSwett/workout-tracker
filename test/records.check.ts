@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import type { LoggedSet, Workout } from '../src/types'
 const { beatsRecord, estimate1RM, isCompletedSet, isScoringSet, isScoringWorkout, scoringSets } =
   require('../src/records') as typeof import('../src/records')
-const { compileHistorySummary } = require('../src/prompts') as typeof import('../src/prompts')
+const { compileHistorySummary, compileWorkouts } = require('../src/prompts') as typeof import('../src/prompts')
 
 const settings = { units: 'lbs', restSeconds: 120, philosophy: 'balanced' } as const
 const workout = (date: string, sets: LoggedSet[], extra: Partial<Workout> = {}): Workout => ({
@@ -90,6 +90,40 @@ function main() {
     reversed.split('# ALL-TIME BEST')[1],
     'all-time bests do not depend on stored workout order',
   ))
+
+  // --- LOAD TRENDS obeys session eligibility too (TOM-90 finding) --------------
+  // A skipped session keeps whatever load was prescribed for it, and its rows can carry
+  // `done: true` from the plan import. The trend block read those rows directly, so a
+  // 900x5 the board never touched became the far end of the trend line the coach reasons
+  // from, while History — which already filtered the session out — showed 117lbs.
+  const skippedTail = [
+    workout('2026-09-20', [{ weight: 100, reps: 5, done: true }]),
+    workout('2026-09-27', [{ weight: 900, reps: 5, done: true }], { status: 'skipped' }),
+  ]
+  const skippedOut = compileWorkouts(skippedTail, settings as never)
+  check(() => assert.ok(!skippedOut.includes('1050'), 'a skipped session does not end the trend line'))
+  check(() => assert.ok(!/# LOAD TRENDS/.test(skippedOut), 'one eligible session is not a trend'))
+  // Same shape, tombstoned instead of skipped.
+  const deletedTail = [
+    workout('2026-09-20', [{ weight: 100, reps: 5, done: true }]),
+    workout('2026-09-27', [{ weight: 900, reps: 5, done: true }], { deleted: true }),
+  ]
+  check(() => assert.ok(!compileWorkouts(deletedTail, settings as never).includes('1050')))
+  // An un-ticked row inside an eligible session is excluded by the set rule, as before.
+  const untickedTail = [
+    workout('2026-09-20', [{ weight: 100, reps: 5, done: true }]),
+    workout('2026-09-27', [{ weight: 900, reps: 5, done: false }]),
+  ]
+  check(() => assert.ok(!compileWorkouts(untickedTail, settings as never).includes('1050')))
+  // And a real progression still reports, so the gate did not silence the feature.
+  const realTrend = compileWorkouts(
+    [
+      workout('2026-09-20', [{ weight: 100, reps: 5, done: true }]),
+      workout('2026-09-27', [{ weight: 200, reps: 5, done: true }], { status: 'partial' }),
+    ],
+    settings as never,
+  )
+  check(() => assert.match(realTrend, /Squat: est 1RM 117 → 233 lbs \(100x5 → 200x5\)/))
 
   console.log(`${n}/${n} record eligibility and tiebreak checks passed`)
 }

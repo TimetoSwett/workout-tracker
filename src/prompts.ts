@@ -2,7 +2,7 @@ import type { CoachMemory, DailyMetric, LoggedExercise, Mesocycle, Philosophy, P
 import { MUSCLE_GROUPS } from './types'
 import { muscleGroupName } from './mesoEngine'
 import { compileMetrics, nutritionBlock } from './nutrition'
-import { beatsRecord, estimate1RM, isScoringSet, scoringSets, type RecordSet } from './records'
+import { beatsRecord, estimate1RM, isScoringSet, isScoringWorkout, scoringSets, type RecordSet } from './records'
 
 /** Heaviest completed set of an exercise by estimated 1RM (Epley), for load-trend reporting.
  *  Eligibility is `isScoringSet` — the same rule Best lifts uses — so the trend the coach
@@ -43,9 +43,14 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
   const mesoById = new Map(mesocycles.map((m) => [m.id, m]))
 
   // Per-exercise load trends (best set, est 1RM via Epley, first → last in
-  // this window) so the coach sees progression directly.
+  // this window) so the coach sees progression directly. Session eligibility is
+  // `isScoringWorkout`, the same gate Best lifts and the all-time block use: a
+  // skipped session's rows keep whatever numbers were prescribed, so without it a
+  // planned 900x5 the board never touched became the end of the trend line while
+  // History correctly ignored it.
   const byExercise = new Map<string, { first?: RecordSet; last?: RecordSet }>()
   for (const w of workouts) {
+    if (!isScoringWorkout(w)) continue
     for (const ex of w.exercises) {
       const best = bestSet(ex)
       if (!best) continue
