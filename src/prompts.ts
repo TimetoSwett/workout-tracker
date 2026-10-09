@@ -2,7 +2,15 @@ import type { CoachMemory, DailyMetric, LoggedExercise, Mesocycle, Philosophy, P
 import { MUSCLE_GROUPS } from './types'
 import { muscleGroupName } from './mesoEngine'
 import { compileMetrics, nutritionBlock } from './nutrition'
-import { beatsRecord, estimate1RM, isScoringSet, isScoringWorkout, scoringSets, type RecordSet } from './records'
+import {
+  beatsRecord,
+  estimate1RM,
+  isHardSet,
+  isScoringSet,
+  isScoringWorkout,
+  scoringSets,
+  type RecordSet,
+} from './records'
 
 /** Heaviest completed set of an exercise by estimated 1RM (Epley), for load-trend reporting.
  *  Eligibility is `isScoringSet` — the same rule Best lifts uses — so the trend the coach
@@ -17,15 +25,25 @@ function bestSet(ex: LoggedExercise): RecordSet | undefined {
   return best
 }
 
+/** Tonnage actually lifted in a session: weight x reps over the sets the user completed.
+ *
+ *  Finishing a workout keeps every row with a weight or a rep count typed into it, so
+ *  without `isHardSet` a 225x5 the user entered and then never ticked added 1,125 lbs to
+ *  the workout card and to History's weekly chart. Bodyweight sets add 0 by arithmetic,
+ *  not by exclusion — they still count toward `setCount`. */
 export function volumeOf(w: Workout): number {
+  if (!isScoringWorkout(w)) return 0
   return w.exercises.reduce(
-    (sum, ex) => sum + ex.sets.reduce((s, set) => s + (set.weight ?? 0) * (set.reps ?? 0), 0),
+    (sum, ex) => sum + ex.sets.reduce((s, set) => (isHardSet(set) ? s + (set.weight ?? 0) * set.reps! : s), 0),
     0,
   )
 }
 
+/** Hard sets in a session — the figure on the workout card, and the same rule the coach's
+ *  session summary counts with. */
 export function setCount(w: Workout): number {
-  return w.exercises.reduce((n, ex) => n + ex.sets.length, 0)
+  if (!isScoringWorkout(w)) return 0
+  return w.exercises.reduce((n, ex) => n + ex.sets.filter(isHardSet).length, 0)
 }
 
 export function durationMin(w: Workout): number {
@@ -39,6 +57,9 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
   lines.push(`Workouts (${workouts.length}), oldest first.`)
   lines.push(
     'Effort metrics: hard-set counts and rep distribution are primary; load trend (top set weight) matters for strength blocks. Do NOT compare raw tonnage (weight x reps summed) across phases — strength blocks run fewer, heavier sets by design and that is not detraining.',
+  )
+  lines.push(
+    'A set marked [not completed] was entered but never performed. It is excluded from every hard-set count and rep distribution below; read it as a plan, not as work done.',
   )
   const mesoById = new Map(mesocycles.map((m) => [m.id, m]))
 
@@ -88,12 +109,18 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
     if (w.activity) {
       lines.push(`Activity: ${w.activity.style ? `${w.activity.type} (${w.activity.style})` : w.activity.type}, ${w.activity.durationMin} min — non-lifting session, not captured in set counts`)
     }
+    // Hard sets and the rep mix are the coach's primary effort signal, so they count only
+    // sets the user actually completed — `isHardSet`, the same rule the workout card uses.
+    // A skipped session counts nothing at all; its rows still print, so the coach can see
+    // what was planned and abandoned.
+    const counts = isScoringWorkout(w)
     let hardSets = 0
     const repBuckets = { '1-5': 0, '6-10': 0, '11-15': 0, '16+': 0 }
     for (const ex of w.exercises) {
       const sets = ex.sets
         .map((s) => {
-          if ((s.reps ?? 0) > 0) {
+          const performed = counts && isHardSet(s)
+          if (performed) {
             hardSets++
             const r = s.reps!
             if (r <= 5) repBuckets['1-5']++
@@ -103,7 +130,12 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
           }
           const actual = `${s.weight ?? '?'}${settings.units}x${s.reps ?? '?'}`
           const hasTarget = s.weightTarget != null || s.repsTarget != null
-          return hasTarget ? `${actual} (target ${s.weightTarget ?? '?'}${settings.units}x${s.repsTarget ?? '?'})` : actual
+          const detail = hasTarget
+            ? `${actual} (target ${s.weightTarget ?? '?'}${settings.units}x${s.repsTarget ?? '?'})`
+            : actual
+          // Without this the numbers on an un-ticked row read exactly like a finished set,
+          // and the session summary below would contradict the rows it is summarising.
+          return performed ? detail : `${detail} [not completed]`
         })
         .join(', ')
       lines.push(`- ${ex.name}: ${sets}`)
@@ -242,23 +274,30 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
   if (!workouts.length) return ''
   const months = new Map<string, { sessions: number; sets: number; reps: number[]; heavy: number }>()
   for (const w of workouts) {
+    // A skipped session contributes no shape data — not its sets and not the session
+    // itself. It used to raise the month's session count while contributing no sets,
+    // which read to the coach as a month of empty training days.
+    if (!isScoringWorkout(w)) continue
     const key = w.date.slice(0, 7)
     const m = months.get(key) ?? { sessions: 0, sets: 0, reps: [], heavy: 0 }
     m.sessions++
     for (const ex of w.exercises) {
       for (const s of ex.sets) {
-        if (s.status === 'skipped' || s.weight == null || s.reps == null || s.reps <= 0) continue
+        // `isHardSet`, so this agrees with the per-session counts in `compileWorkouts`.
+        // The old rule required a non-null weight, which dropped every bodyweight set
+        // from the monthly hard-set totals, and accepted any row with reps whether or
+        // not it was ever completed.
+        if (!isHardSet(s)) continue
         m.sets++
-        m.reps.push(s.reps)
-        if (s.reps <= 6) m.heavy++
+        m.reps.push(s.reps!)
+        if (s.reps! <= 6) m.heavy++
       }
     }
     months.set(key, m)
   }
 
-  // All-time bests run off `scoringSets`, not the rollup's filter above: the rollup is
-  // counting work done and tolerates a missing completion flag, but an all-time max the
-  // coach prescribes against must be a set that was actually completed.
+  // All-time bests run off `scoringSets`: the rollup counts effort, where a bodyweight
+  // set is real work, but an all-time max the coach prescribes against needs a real load.
   const best = new Map<string, RecordSet>()
   for (const { name, set, date } of scoringSets(workouts)) {
     const cand: RecordSet = { weight: set.weight!, reps: set.reps!, date, e1rm: estimate1RM(set.weight!, set.reps!) }
@@ -269,8 +308,9 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
     const s = [...xs].sort((a, b) => a - b)
     return s[Math.floor(s.length / 2)]
   }
+  const sessionCount = [...months.values()].reduce((total, month) => total + month.sessions, 0)
   const lines = [
-    `\n# TRAINING HISTORY (monthly rollup — per-set detail omitted for length; ${workouts.length} sessions)`,
+    `\n# TRAINING HISTORY (monthly rollup — per-set detail omitted for length; ${sessionCount} sessions)`,
     'month | sessions | hard sets | median reps | % sets at <=6 reps',
   ]
   for (const key of [...months.keys()].sort()) {
