@@ -171,6 +171,16 @@ function main() {
   // training day that produced no sets.
   check(() => assert.equal(rollupRow(rollup, '2026-10'), '2026-10 | 2 | 3 | 8 | 33%'))
 
+  check(() => assert.match(rollup, /omitted for length; 2 sessions\)/))
+  const fourPerformed = compileHistorySummary(
+    [mixed, partial, mixed, partial, skipped], settings as never,
+  )
+  check(() => assert.match(fourPerformed, /omitted for length; 4 sessions\)/))
+  check(() => assert.equal(rollupRow(fourPerformed, '2026-10'), '2026-10 | 4 | 8 | 8 | 50%'))
+  const allSkipped = compileHistorySummary([skipped], settings as never)
+  check(() => assert.match(allSkipped, /omitted for length; 0 sessions\)/))
+  check(() => assert.equal(rollupRow(allSkipped, '2026-10'), undefined))
+
   // The bodyweight sets above are the proof that the rollup's old `weight == null` filter
   // is gone: median reps is 8 only because the null-weight 8-rep set is counted.
   const bodyweightOnly = compileHistorySummary(

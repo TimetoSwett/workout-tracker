@@ -303,8 +303,9 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
     const s = [...xs].sort((a, b) => a - b)
     return s[Math.floor(s.length / 2)]
   }
+  const sessionCount = [...months.values()].reduce((total, month) => total + month.sessions, 0)
   const lines = [
-    `\n# TRAINING HISTORY (monthly rollup — per-set detail omitted for length; ${workouts.length} sessions)`,
+    `\n# TRAINING HISTORY (monthly rollup — per-set detail omitted for length; ${sessionCount} sessions)`,
     'month | sessions | hard sets | median reps | % sets at <=6 reps',
   ]
   for (const key of [...months.keys()].sort()) {
