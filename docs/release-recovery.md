@@ -165,22 +165,36 @@ creates one, builds off this branch label themselves by commit.
 The web targets do not have the `versionCode` problem — there is no installer to
 refuse a downgrade — but they do cache.
 
-- **Production** is two surfaces, and neither is moved by a branch.
-  `workout.tucker-swett.com` is a custom domain bound to the `workout-tracker`
-  Worker. **GitHub Pages** (`timetoswett.github.io/workout-tracker/`) is
-  published by `.github/workflows/deploy.yml` on pushes to `main`. The Worker
-  side was, until 2026-10-08, *also* published automatically from `main`: its
-  Workers Builds production trigger ran `npx wrangler deploy`, which both
-  uploads a version and shifts 100% of traffic to it. On 2026-10-08 that trigger
-  was changed to `npx wrangler versions upload`, which uploads without
-  deploying — so pushes to `main` no longer move `workout.tucker-swett.com`, and
-  the Worker side of production now needs an explicit deploy (dashboard, or
-  `npx wrangler versions deploy`). Check which of those two states is current
-  before reasoning about what production serves. "Recovery" for both surfaces is
-  the same: do not merge a candidate tree, and do not deploy a version built
-  from one.
+- **Production** is two surfaces, both published automatically from `main`, and
+  neither is moved by a branch. `workout.tucker-swett.com` is a custom domain
+  bound to the `workout-tracker` Worker, published by that Worker's Workers
+  Builds **production trigger**, which runs `npm run build` then
+  `npx wrangler deploy` on every push to `main`. `wrangler deploy` both uploads
+  a version and shifts 100% of traffic to it, which is what makes the push
+  reach the live domain. **GitHub Pages**
+  (`timetoswett.github.io/workout-tracker/`) is published by
+  `.github/workflows/deploy.yml`, also on pushes to `main`. So a merge to `main`
+  moves both surfaces with no human step, and "recovery" for both is the same:
+  do not merge a candidate tree, and do not deploy a version built from one.
 
-  As of 2026-10-08 both surfaces serve `2026.10.08.ebd44da` — `main`'s head, the
+  Two traps here, both of which this project has actually fallen into:
+
+  - The Worker's deploy command is a *dashboard* setting, not a file in the
+    repo, so nothing in a diff tells you it changed. Between 2026-10-08 20:21
+    and 2026-10-09 11:42 it was `npx wrangler versions upload`, which uploads a
+    version **without** shifting traffic. For those 15 hours a push to `main`
+    would have built, succeeded, reported a green check run, and silently not
+    reached `workout.tucker-swett.com`. It was restored to `npx wrangler deploy`
+    on 2026-10-09 (TOM-87). If production ever looks stale while builds look
+    green, read the trigger before anything else:
+    `GET /accounts/:id/builds/workers/<script_tag>/triggers` — see the
+    `script_tag` warning below, because the same call with the Worker's *name*
+    will tell you there are no triggers at all.
+  - A version uploaded but not deployed still exists and is still promotable.
+    `npx wrangler versions deploy` shifts traffic to one; that is the manual
+    recovery if a `versions upload` build is the newest thing on the Worker.
+
+  As of 2026-10-09 both surfaces serve `2026.10.08.ebd44da` — `main`'s head, the
   merge of PR #29. They report different bundle filenames
   (`assets/index-C-FBFX_J.js` on the custom domain,
   `assets/index-DGjX66H1.js` on Pages) because Pages builds under a different
