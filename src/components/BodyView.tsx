@@ -348,10 +348,18 @@ function BarChart({
   const max = Math.max(...points.map((p) => p.value), 1)
   // The newest reading starts selected: it is the one the board is looking for, and a
   // readout that is always present cannot reflow the card on the first tap.
-  const [sel, setSel] = useState(points.length - 1)
+  const newestDate = points[points.length - 1].date
+  const [selection, setSelection] = useState({ newestDate, date: newestDate })
+  function setSel(index: number) {
+    setSelection({ newestDate, date: points[index].date })
+  }
   const track = useRef<HTMLDivElement>(null)
-  // Clamp rather than trust: a sync or an import can shorten `points` under a stale index.
-  const i = Math.min(Math.max(sel, 0), points.length - 1)
+  // Follow a newly synced day immediately; backfills keep the selected date stable.
+  // A removed selection falls back to the newest reading.
+  const selectedIndex = selection.newestDate === newestDate
+    ? points.findIndex((p) => p.date === selection.date)
+    : -1
+  const i = selectedIndex < 0 ? points.length - 1 : selectedIndex
   const cur = points[i]
 
   // Newest is rightmost, so an overflowing track opens on the wrong end by default.
