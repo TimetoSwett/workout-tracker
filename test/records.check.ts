@@ -7,8 +7,10 @@
 // bodyweight Pull-Up holds no record but is unambiguously a hard set.
 import assert from 'node:assert/strict'
 import type { LoggedSet, Workout } from '../src/types'
-const { beatsRecord, estimate1RM, isCompletedSet, isHardSet, isScoringSet, isScoringWorkout, scoringSets } =
-  require('../src/records') as typeof import('../src/records')
+const {
+  beatsRecord, beatsWeightRecord, estimate1RM, isCompletedSet, isHardSet, isScoringSet, isScoringWorkout,
+  liftRecords, scoringSets,
+} = require('../src/records') as typeof import('../src/records')
 const { compileHistorySummary, compileWorkouts, setCount, volumeOf } =
   require('../src/prompts') as typeof import('../src/prompts')
 
@@ -80,6 +82,59 @@ function main() {
   const maxEstimate = { weight: 350, reps: 8, e1rm: estimate1RM(350, 8), date: '2026-09-27' }
   check(() => assert.equal(beatsRecord(maxEstimate, maxWeight), true))
   check(() => assert.equal(beatsRecord(maxWeight, maxEstimate), false))
+
+  // --- TOM-43: heaviest weight is its own reduction ---------------------------
+  // The two records disagree on exactly the pair above, which is the point of having two.
+  check(() => assert.equal(beatsWeightRecord(maxWeight, maxEstimate), true, '400 is the heavier bar'))
+  check(() => assert.equal(beatsWeightRecord(maxEstimate, maxWeight), false))
+  check(() => assert.equal(beatsWeightRecord(maxWeight, undefined), true))
+  // Ties break the same way as `beatsRecord` for the same reason — the record belongs to
+  // the day it was first hit — and then on reps, the harder set at one load.
+  const early = { weight: 315, reps: 3, e1rm: estimate1RM(315, 3), date: '2026-09-20' }
+  const late = { weight: 315, reps: 8, e1rm: estimate1RM(315, 8), date: '2026-09-27' }
+  check(() => assert.equal(beatsWeightRecord(early, late), true, 'earlier date takes an equal load'))
+  check(() => assert.equal(beatsWeightRecord(late, early), false, 'and does so from either direction'))
+  check(() => assert.equal(beatsWeightRecord({ ...late, date: early.date }, early), true, 'same day, more reps wins'))
+  check(() => assert.equal(beatsWeightRecord(early, { ...late, date: early.date }), false))
+
+  // `liftRecords` runs both reductions over the one eligibility rule.
+  const twoRecords = liftRecords([
+    workout('2026-09-20', [{ weight: 400, reps: 1, done: true }]),
+    workout('2026-09-27', [{ weight: 350, reps: 8, done: true }, { weight: 500, reps: 5, done: false }]),
+  ])
+  check(() => assert.equal(twoRecords.size, 1))
+  const squatRec = twoRecords.get('Squat')!
+  check(() => assert.deepEqual(
+    { w: squatRec.heaviest.weight, r: squatRec.heaviest.reps, d: squatRec.heaviest.date },
+    { w: 400, r: 1, d: '2026-09-20' },
+    'the heaviest figure reports its own set, not the 1RM winner',
+  ))
+  check(() => assert.deepEqual(
+    { w: squatRec.e1rm.weight, r: squatRec.e1rm.reps, d: squatRec.e1rm.date },
+    { w: 350, r: 8, d: '2026-09-27' },
+  ))
+  check(() => assert.equal(Math.round(squatRec.e1rm.e1rm), 443))
+  check(() => assert.ok(squatRec.heaviest.weight < Math.round(squatRec.e1rm.e1rm),
+    'the measured max is below the modelled one here, so mislabelling them is visible'))
+  // Neither figure may come from the un-completed 500, which outweighs and out-estimates both.
+  check(() => assert.ok(squatRec.heaviest.weight !== 500 && squatRec.e1rm.weight !== 500))
+
+  // Order independence, for both figures at once.
+  const hist = [
+    workout('2026-09-20', [{ weight: 400, reps: 1, done: true }, { weight: 300, reps: 5, done: true }]),
+    workout('2026-09-27', [{ weight: 350, reps: 8, done: true }, { weight: 250, reps: 12, done: true }]),
+  ]
+  const asStored = liftRecords(hist).get('Squat')!
+  const asMerged = liftRecords([...hist].reverse()).get('Squat')!
+  check(() => assert.deepEqual(asStored, asMerged, 'a Dropbox merge cannot change either record'))
+
+  // An exercise with no eligible set is absent, not present with zeroes — that is what
+  // keeps a lift whose every row lacks a weight or a rep count off the Best lifts list.
+  check(() => assert.equal(
+    liftRecords([workout('2026-09-20', [{ weight: null, reps: 10, done: true }, { weight: 30, reps: null, done: true }])]).size,
+    0,
+  ))
+  check(() => assert.equal(liftRecords([]).size, 0, 'an empty history has no records'))
 
   // --- the coach is told the same thing the board is shown ---------------------
   const history = [
