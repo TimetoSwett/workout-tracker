@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 import type { DailyMetric } from '../types'
 import { useStore } from '../store'
 import { getMetrics, subscribeMetrics, upsertMetric } from '../metricsStore'
@@ -13,6 +13,10 @@ const WEIGHT_MIN_KG = 20
 const WEIGHT_MAX_KG = 400
 const BF_MIN = 1
 const BF_MAX = 70
+
+/** The window the daily charts (resting HR, steps, sleep, calories) look back over. Shared
+ *  with the caption each chart prints, so the number shown is the number filtered on. */
+const RECENT_DAYS = 14
 
 function fmt(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
@@ -47,10 +51,10 @@ export function BodyView() {
 
   const weightPts = window(metrics, wRange, (m) => m.weight)
   const bfPts = window(metrics, wRange, (m) => m.bodyFat)
-  const hrPts = window(metrics, 14, (m) => m.restingHr)
-  const stepsPts = window(metrics, 14, (m) => m.steps)
-  const sleepPts = window(metrics, 14, (m) => m.sleepMin)
-  const caloriesPts = window(metrics, 14, (m) => m.calories)
+  const hrPts = window(metrics, RECENT_DAYS, (m) => m.restingHr)
+  const stepsPts = window(metrics, RECENT_DAYS, (m) => m.steps)
+  const sleepPts = window(metrics, RECENT_DAYS, (m) => m.sleepMin)
+  const caloriesPts = window(metrics, RECENT_DAYS, (m) => m.calories)
 
   const latest = [...metrics].reverse().find((m) => m.weight != null)
   const latestLean = [...metrics].reverse().find((m) => m.leanMass != null)
@@ -209,7 +213,7 @@ export function BodyView() {
             {hrAvg != null && (
               <div>
                 <div class="stat-num">{fmt(hrAvg, 0)}</div>
-                <div class="stat-label">14d avg (bpm)</div>
+                <div class="stat-label">{RECENT_DAYS}d avg (bpm)</div>
               </div>
             )}
           </div>
@@ -253,9 +257,25 @@ export function BodyView() {
         </div>
       </div>
 
-      {stepsPts.length > 0 && <BarChart title="Steps (14d)" points={stepsPts} avg={stepsAvg} suffix=" steps" />}
-      {sleepPts.length > 0 && <BarChart title="Sleep (14d)" points={sleepPts.map((p) => ({ ...p, value: p.value / 60 }))} avg={sleepAvg != null ? sleepAvg / 60 : null} suffix=" h" />}
-      {caloriesPts.length > 0 && <BarChart title="Calories (14d)" points={caloriesPts} avg={caloriesAvg} suffix=" kcal" />}
+      {/* The window is stated in each chart's caption now, together with how many readings
+          actually landed in it, so the titles no longer claim "(14d)" over a bar per
+          reading. See `BarChart`. */}
+      {stepsPts.length > 0 && (
+        <BarChart title="Steps" points={stepsPts} avg={stepsAvg} suffix=" steps" days={RECENT_DAYS} />
+      )}
+      {sleepPts.length > 0 && (
+        <BarChart
+          title="Sleep"
+          points={sleepPts.map((p) => ({ ...p, value: p.value / 60 }))}
+          avg={sleepAvg != null ? sleepAvg / 60 : null}
+          suffix=" h"
+          days={RECENT_DAYS}
+          digits={1}
+        />
+      )}
+      {caloriesPts.length > 0 && (
+        <BarChart title="Calories" points={caloriesPts} avg={caloriesAvg} suffix=" kcal" days={RECENT_DAYS} />
+      )}
 
       {toast && <div class="toast visible">{toast}</div>}
     </div>
@@ -285,21 +305,108 @@ function LineChart({ title, points }: { title: string; points: { date: string; v
   )
 }
 
-function BarChart({ title, points, avg, suffix }: { title: string; points: { date: string; value: number }[]; avg: number | null; suffix: string }) {
+/** `M/D` from a stored local-calendar `YYYY-MM-DD`. Split rather than parsed through
+ *  `Date`, because `new Date('2026-09-27')` is parsed as UTC midnight and renders as the
+ *  previous day anywhere west of Greenwich — the exact trap `dates.ts` exists to avoid. */
+function tick(date: string): string {
+  const [, m, d] = date.split('-')
+  return `${Number(m)}/${Number(d)}`
+}
+
+/** A dated bar chart whose detail is reachable without a mouse.
+ *
+ *  Three things this is careful about:
+ *
+ *  - **Every bar is a real control.** It used to be a `div` whose only detail was a native
+ *    `title=` tooltip, which needs a hover the board's phone does not have; the reading was
+ *    unreachable on the only device that matters. Each column is now a button with an
+ *    accessible name, and the selected reading is also written out in text above the chart
+ *    so touch, mouse and keyboard all land somewhere.
+ *  - **Ticks get room rather than colliding.** The Calories chart fills the whole window,
+ *    and 15 columns in a 302px card leaves 14.5px each while the widest `12/28` tick
+ *    measures 24.8px. `.chart-scroll` lets the track overflow past a per-column floor
+ *    instead, and starts scrolled to the newest reading.
+ *  - **Gaps are stated, not drawn.** A day with no reading is omitted upstream in
+ *    `window()`, never plotted as zero. That means the survivors are equidistant and the
+ *    x-axis is *not* a time axis, so the caption says how many readings these are rather
+ *    than implying one bar per day. */
+function BarChart({
+  title,
+  points,
+  avg,
+  suffix,
+  days,
+  digits = 0,
+}: {
+  title: string
+  points: { date: string; value: number }[]
+  avg: number | null
+  suffix: string
+  days: number
+  digits?: number
+}) {
   const max = Math.max(...points.map((p) => p.value), 1)
+  // The newest reading starts selected: it is the one the board is looking for, and a
+  // readout that is always present cannot reflow the card on the first tap.
+  const [sel, setSel] = useState(points.length - 1)
+  const track = useRef<HTMLDivElement>(null)
+  // Clamp rather than trust: a sync or an import can shorten `points` under a stale index.
+  const i = Math.min(Math.max(sel, 0), points.length - 1)
+  const cur = points[i]
+
+  // Newest is rightmost, so an overflowing track opens on the wrong end by default.
+  useEffect(() => {
+    const el = track.current
+    if (el) el.scrollLeft = el.scrollWidth
+  }, [points.length])
+
+  function onKeyDown(e: KeyboardEvent) {
+    const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+    if (step === 0) return
+    e.preventDefault()
+    const next = Math.min(points.length - 1, Math.max(0, i + step))
+    setSel(next)
+    // Move focus with the selection, or a keyboard user's focus ring and the highlighted
+    // bar drift apart. `onFocus` would re-select the same index, which is a no-op.
+    const cols = (e.currentTarget as HTMLElement).children
+    ;(cols[next] as HTMLElement | undefined)?.focus()
+  }
+
   return (
     <div class="card">
       <h3>
         {title} {avg != null && <span class="muted">· avg {fmt(avg)}{suffix}</span>}
       </h3>
-      <div class="chart">
-        {points.map((p) => (
-          <div key={p.date} class="chart-col" title={`${p.date}: ${fmt(p.value, 0)}${suffix}`}>
-            <div class="chart-bar-wrap">
-              <div class="chart-bar" style={{ height: `${Math.max(2, (p.value / max) * 100)}%` }} />
-            </div>
-          </div>
-        ))}
+      <div class="chart-readout">
+        <span class="chart-readout-val">
+          {fmt(cur.value, digits)}
+          {suffix}
+        </span>
+        <span class="muted"> · {cur.date}</span>
+      </div>
+      <div class="chart-scroll" ref={track}>
+        <div class="chart" role="group" aria-label={`${title}, ${points.length} readings`} onKeyDown={onKeyDown}>
+          {points.map((p, n) => (
+            <button
+              key={p.date}
+              type="button"
+              class={`chart-col${n === i ? ' selected' : ''}`}
+              aria-label={`${p.date}: ${fmt(p.value, digits)}${suffix}`}
+              aria-pressed={n === i}
+              onClick={() => setSel(n)}
+              onFocus={() => setSel(n)}
+            >
+              <div class="chart-bar-wrap">
+                <div class="chart-bar" style={{ height: `${Math.max(2, (p.value / max) * 100)}%` }} />
+              </div>
+              <span class="chart-label">{tick(p.date)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div class="muted small">
+        {points.length} {points.length === 1 ? 'reading' : 'readings'} in the last {days} days · days with no
+        reading are left out, not shown as zero
       </div>
     </div>
   )
