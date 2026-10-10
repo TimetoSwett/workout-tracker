@@ -29,5 +29,28 @@
   // the block empty means a preview runs with the same top-level assets and
   // compatibility settings as production.
   // https://developers.cloudflare.com/workers/previews/configuration/
+  //
+  // Known divergence, accepted in TOM-95: a preview answers any non-root path
+  // with 404 where production serves index.html. `wrangler preview` needs an
+  // entrypoint, so for an assets-only Worker it uploads Wrangler's own
+  // templates/no-op-worker.js. Existing assets still serve, but a miss falls
+  // through to that stub's "Not found" instead of reaching the asset router's
+  // `not_found_handling` above. It cannot be overridden from this block, which
+  // takes bindings and runtime settings only: Wrangler drops both
+  // `previews.not_found_handling` and `previews.assets` with an "Unexpected
+  // fields found in previews field" warning on 4.145.0 and 4.149.0 alike.
+  //
+  // Closing it means giving this Worker a real `main` that serves the fallback
+  // itself through an ASSETS binding, which is a production change made to fix
+  // a preview-only gap. Not worth it yet: nothing routes on the URL, and once
+  // the service worker is installed it answers in-scope navigations from
+  // precached index.html anyway (`navigateFallback` in vite.config.ts), so the
+  // 404 is only reachable on an uncontrolled first load of a deep path.
+  // Revisit when real URL routes land, and ship the fallback Worker with them.
+  //
+  // Re-checking after a Wrangler bump is local: diff
+  // templates/no-op-worker.js against 4.145.0's, and look for that warning on
+  // `npx wrangler@<version> deploy --dry-run`. The unsupported fields only
+  // warn, so do not wait for a hard config error to tell you.
   "previews": {}
 }
