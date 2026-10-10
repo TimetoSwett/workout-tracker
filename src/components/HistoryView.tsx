@@ -5,7 +5,7 @@ import { setWorkouts } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
-import { beatsRecord, estimate1RM, scoringSets, type RecordSet } from '../records'
+import { liftRecords, type RecordSet } from '../records'
 import { localDate } from '../dates'
 
 function startOfWeek(d: Date): Date {
@@ -16,6 +16,35 @@ function startOfWeek(d: Date): Date {
 }
 
 const PAGE_SIZE = 30
+
+/** One record figure: what it is, the number with its units, and the set it came from.
+ *
+ *  The label sits at the number rather than in the card's blurb. With a single figure the
+ *  blurb could carry the word "estimated"; with a modelled figure and a measured one side
+ *  by side there is no way to tell them apart unless each says what it is. */
+function PrFigure({
+  label,
+  figure,
+  set,
+  units,
+}: {
+  label: string
+  figure: number
+  set: RecordSet
+  units: string
+}) {
+  return (
+    <span class="pr-figure">
+      <span class="pr-fig-label">{label}</span>
+      <span class="pr-fig-num">
+        {figure} {units}
+      </span>
+      <span class="muted pr-prov">
+        {set.weight}×{set.reps} · {set.date}
+      </span>
+    </span>
+  )
+}
 
 export function HistoryView() {
   const { workouts, settings, templates } = useStore()
@@ -43,23 +72,19 @@ export function HistoryView() {
     return out
   }, [workouts])
 
-  /** Ranked by estimated 1RM, not raw weight: raw weight puts every machine and every
-   *  bodyweight-loaded movement above real barbell lifts, and ignores how many reps the
-   *  set was. Pinned lifts always show regardless of where they rank. Eligibility and the
-   *  tiebreak come from `records` so this agrees with what the coach is told. */
+  /** Two records per lift: the highest estimated 1RM and the heaviest weight moved. They
+   *  routinely come from different sets — `350×8` estimates 443 and beats `400×1`'s 413,
+   *  while 400 is the heavier bar — so both are reduced independently in `records`, off the
+   *  one `isScoringSet` eligibility rule the coach also uses.
+   *
+   *  The *list* is still ordered by estimated 1RM, not raw weight: raw weight puts every
+   *  machine and every bodyweight-loaded movement above real barbell lifts and ignores how
+   *  many reps the set was. Pinned lifts always show regardless of where they rank. */
   const prs = useMemo(() => {
-    const best = new Map<string, RecordSet>()
-    for (const { name, set, date } of scoringSets(workouts)) {
-      const cand: RecordSet = {
-        weight: set.weight!,
-        reps: set.reps!,
-        date,
-        e1rm: estimate1RM(set.weight!, set.reps!),
-      }
-      if (beatsRecord(cand, best.get(name))) best.set(name, cand)
-    }
     // Name breaks a tie between two exercises so the list order cannot flap either.
-    return [...best.entries()].sort((a, b) => b[1].e1rm - a[1].e1rm || a[0].localeCompare(b[0]))
+    return [...liftRecords(workouts).entries()].sort(
+      (a, b) => b[1].e1rm.e1rm - a[1].e1rm.e1rm || a[0].localeCompare(b[0]),
+    )
   }, [workouts])
 
   const pinned = settings.keyLifts ?? []
@@ -123,10 +148,13 @@ export function HistoryView() {
       {prs.length > 0 && (
         <div class="card">
           <h3>Best lifts</h3>
-          <p class="muted small">Best estimated 1RM per exercise. Tap ☆ to keep a lift pinned here.</p>
-          {shownPrs.map(([name, pr]) => (
-            <div key={name} class="pr-row">
-              <span>
+          <p class="muted small">
+            Heaviest weight moved and best estimated 1RM per exercise, from completed sets only. Tap ☆ to keep
+            a lift pinned here.
+          </p>
+          {shownPrs.map(([name, rec]) => (
+            <div key={name} class="pr-row stacked">
+              <span class="pr-name">
                 <button
                   class="pin-btn"
                   title={pinned.includes(name) ? 'Unpin' : 'Pin to Best lifts'}
@@ -137,11 +165,8 @@ export function HistoryView() {
                 {name}
               </span>
               <span class="pr-val">
-                {Math.round(pr.e1rm)}
-                {settings.units}{' '}
-                <span class="muted">
-                  ({pr.weight}×{pr.reps}, {pr.date})
-                </span>
+                <PrFigure label="est. 1RM" figure={Math.round(rec.e1rm.e1rm)} set={rec.e1rm} units={settings.units} />
+                <PrFigure label="heaviest" figure={rec.heaviest.weight} set={rec.heaviest} units={settings.units} />
               </span>
             </div>
           ))}
