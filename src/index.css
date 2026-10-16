@@ -599,19 +599,78 @@ button {
   text-align: left;
 }
 
+/* A date tick under every bar needs real room, and the Calories chart is the dense case:
+   it fills the whole 14-day window, so 15 columns across a 302px card leave 14.5px each
+   while the widest "12/28" tick measures 24.8px at `.chart-label`'s size. Rather than let
+   the ticks collide or thin them out until the axis is unreadable, the track overflows and
+   scrolls past a per-column floor. Charts that fit — History's 8-column weekly volume, a
+   sparse Sleep week — never scroll, because `.chart-col` still grows to fill. */
+.chart-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Room for the focus ring of a first/last column, which a flush scroll box would clip. */
+  padding: 3px;
+  margin: 0 -3px;
+  scrollbar-width: thin;
+  /* Snapping lands a swipe on a whole bar instead of between two. */
+  scroll-snap-type: x proximity;
+}
+
 .chart {
   display: flex;
   align-items: flex-end;
   gap: 6px;
   height: 120px;
+  min-width: 100%;
 }
 
 .chart-col {
-  flex: 1;
+  flex: 1 1 auto;
+  /* The widest "M/D" tick measures ~24.8px; this is that plus breathing room. */
+  min-width: 30px;
   display: flex;
   flex-direction: column;
   align-items: center;
   height: 100%;
+  scroll-snap-align: end;
+  /* In the Body charts `.chart-col` is a <button>, because the reading used to live only in
+     a native `title=` tooltip and no touch or keyboard user could reach it. Strip the UA
+     button chrome so the bar looks the same as it did as a div. */
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chart-col:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+
+/* The selected column is the one the readout above the chart is describing, so it is
+   marked by brightness rather than hue — the same reason the tab indicator uses geometry
+   (TOM-69): a colour-only difference against `--accent` is not a reliable signal. */
+.chart-col.selected .chart-bar {
+  background: var(--text);
+}
+
+.chart-col.selected .chart-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The selected reading in words, so the detail is readable without hitting a bar at all. */
+.chart-readout {
+  font-size: 0.85rem;
+  margin: -4px 0 8px;
+}
+
+.chart-readout-val {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .chart-bar-wrap {
@@ -666,6 +725,70 @@ button {
   white-space: nowrap;
   flex: 0 0 auto;
   margin-left: auto;
+}
+
+/* Best lifts carries two records per lift — a modelled estimate and a measured max — each
+   with its own reps/date provenance. They cannot sit beside the exercise name: the single
+   old value block already measured 200.6px in a 302px row at 360px, so every row wrapped
+   anyway, just unintentionally. `.stacked` makes it deliberate — name on its own line,
+   figures beneath it — and the figures themselves sit side by side when there is room
+   (desktop) and stack when there is not (phone). The unmodified `.pr-row` stays a one-line
+   label/value row for Activity's short "45 min" values. */
+.pr-row.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 5px;
+}
+
+.pr-row.stacked > :first-child {
+  flex: 0 0 auto;
+}
+
+.pr-name {
+  display: block;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.pr-row.stacked .pr-val {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 18px;
+  margin-left: 0;
+  white-space: normal;
+}
+
+.pr-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  /* One figure never splits across lines; the pair wraps as units instead. */
+  white-space: nowrap;
+}
+
+/* Says what the number is, at the number. "estimated" used to appear only in the card's
+   blurb, which was survivable with one figure and is not with two: a modelled 1RM and a
+   measured max are indistinguishable otherwise. */
+.pr-fig-label {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  /* A fixed column keeps the two numbers left-aligned with each other when they stack.
+     Wide enough for the longer of the two labels ("HEAVIEST" measures 5.6em at this size
+     and letter-spacing); a narrower basis lets it overrun and the numbers stop lining up. */
+  flex: 0 0 5.9em;
+}
+
+.pr-fig-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.pr-prov {
+  font-size: 0.72rem;
+  font-weight: 400;
 }
 
 .workout-card {

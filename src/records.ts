@@ -90,3 +90,53 @@ export function beatsRecord(cand: RecordSet, best: RecordSet | undefined): boole
   if (cand.date != null && best.date != null && cand.date !== best.date) return cand.date < best.date
   return cand.weight > best.weight
 }
+
+/** Does `cand` take the *heaviest weight* record from `best`?
+ *
+ *  A second, independent ranking — not a field read off the `beatsRecord` winner. The two
+ *  records genuinely disagree: `350×8` estimates 443 and so outranks `400×1`'s 413, but 400
+ *  is the heavier bar the user actually moved. "Most weight I have ever lifted" is a
+ *  measured fact and has to be reduced on its own terms.
+ *
+ *  Heavier weight wins. An exact tie goes to the earliest date, for the same reason
+ *  `beatsRecord` does — a record belongs to the day it was first achieved — and then to the
+ *  higher rep count, which is the harder of two sets at one load. Sets that agree on all
+ *  three are interchangeable. Eligibility is still `isScoringSet` via `scoringSets`, so the
+ *  two figures can never disagree about which sets exist. */
+export function beatsWeightRecord(cand: RecordSet, best: RecordSet | undefined): boolean {
+  if (!best) return true
+  if (cand.weight !== best.weight) return cand.weight > best.weight
+  if (cand.date != null && best.date != null && cand.date !== best.date) return cand.date < best.date
+  return cand.reps > best.reps
+}
+
+export interface LiftRecords {
+  /** Highest estimated 1RM. Modelled by `estimate1RM`, never measured — label it as such
+   *  wherever it is shown next to `heaviest`, or the two numbers are indistinguishable. */
+  e1rm: RecordSet
+  /** Heaviest weight actually moved. Often, but not always, a different set from `e1rm`. */
+  heaviest: RecordSet
+}
+
+/** Both records for every exercise with at least one record-eligible set, keyed by name.
+ *
+ *  One pass over one eligibility rule, two reductions. Exercises with no eligible set are
+ *  absent rather than present with zeroes, so an empty history yields an empty map and a
+ *  lift whose every set is missing a weight or a rep count never appears. */
+export function liftRecords(workouts: Workout[]): Map<string, LiftRecords> {
+  const out = new Map<string, LiftRecords>()
+  for (const { name, set, date } of scoringSets(workouts)) {
+    const cand: RecordSet = {
+      weight: set.weight!,
+      reps: set.reps!,
+      date,
+      e1rm: estimate1RM(set.weight!, set.reps!),
+    }
+    const cur = out.get(name)
+    out.set(name, {
+      e1rm: beatsRecord(cand, cur?.e1rm) ? cand : cur!.e1rm,
+      heaviest: beatsWeightRecord(cand, cur?.heaviest) ? cand : cur!.heaviest,
+    })
+  }
+  return out
+}
