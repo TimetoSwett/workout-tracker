@@ -1,11 +1,12 @@
 {
   "name": "workout-tracker",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check": "node scripts/run-checks.mjs",
     "preview": "vite preview",
     "build:android": "tsc -b && vite build --mode capacitor",
     "cap:sync": "npm run build:android && cap sync android",
@@ -28,6 +29,7 @@
     "@types/node": "^24.13.3",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
-    "vite-plugin-pwa": "^1.3.0"
+    "vite-plugin-pwa": "^1.3.0",
+    "wrangler": "4.145.0"
   }
 }

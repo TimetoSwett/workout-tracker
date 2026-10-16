@@ -6,11 +6,10 @@ import { getMetrics, upsertMetric } from '../metricsStore'
 import { sync } from '../sync'
 import { syncMetrics } from '../metricsSync'
 import { dropboxConfigured } from '../dropbox'
+import { localDateDaysAgo } from '../dates'
 
 function isoDate(offsetDays = 0): string {
-  const d = new Date()
-  d.setDate(d.getDate() - offsetDays)
-  return d.toISOString().slice(0, 10)
+  return localDateDaysAgo(offsetDays)
 }
 
 function prettyDate(iso: string): string {

@@ -1,4 +1,5 @@
 import type { DailyMetric, Goal, Settings } from './types'
+import { localDateDaysAgo } from './dates'
 
 export function nutritionBlock(goal: Goal | undefined, profile: Settings['profile'], settings: Settings): string {
   if (!goal) return ''
@@ -26,7 +27,7 @@ export function nutritionBlock(goal: Goal | undefined, profile: Settings['profil
 }
 
 export function compileMetrics(metrics: DailyMetric[], settings: Settings, days = 28): string {
-  const cutoff = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10)
+  const cutoff = localDateDaysAgo(days)
   const recent = metrics.filter((m) => m.date >= cutoff)
   if (recent.length === 0) return ''
   const lines = [`\n# HEALTH METRICS (last ${days} days)`]

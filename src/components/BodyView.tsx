@@ -4,13 +4,22 @@ import { useStore } from '../store'
 import { getMetrics, subscribeMetrics, upsertMetric } from '../metricsStore'
 import { syncMetrics } from '../metricsSync'
 import { dropboxConfigured } from '../dropbox'
+import { localDate, localDateDaysAgo } from '../dates'
+import { kgToUnits } from '../units'
+
+// Same bounds healthImport.ts already enforces on imported rows, so a typed reading and
+// an imported one are held to one standard.
+const WEIGHT_MIN_KG = 20
+const WEIGHT_MAX_KG = 400
+const BF_MIN = 1
+const BF_MAX = 70
 
 function fmt(n: number, digits = 1): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
 function window(metrics: DailyMetric[], days: number, pick: (m: DailyMetric) => number | undefined): { date: string; value: number }[] {
-  const cutoff = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10)
+  const cutoff = localDateDaysAgo(days)
   return metrics.filter((m) => m.date >= cutoff && pick(m) != null).map((m) => ({ date: m.date, value: pick(m)! }))
 }
 
@@ -24,7 +33,7 @@ export function BodyView() {
   const [, force] = useState(0)
   const [toast, setToast] = useState('')
   const [wRange, setWRange] = useState(365)
-  const [manualDate, setManualDate] = useState(new Date().toISOString().slice(0, 10))
+  const [manualDate, setManualDate] = useState(localDate())
   const [manualWeight, setManualWeight] = useState('')
   const [manualBf, setManualBf] = useState('')
 
@@ -38,6 +47,7 @@ export function BodyView() {
 
   const weightPts = window(metrics, wRange, (m) => m.weight)
   const bfPts = window(metrics, wRange, (m) => m.bodyFat)
+  const hrPts = window(metrics, 14, (m) => m.restingHr)
   const stepsPts = window(metrics, 14, (m) => m.steps)
   const sleepPts = window(metrics, 14, (m) => m.sleepMin)
   const caloriesPts = window(metrics, 14, (m) => m.calories)
@@ -49,6 +59,8 @@ export function BodyView() {
   const wAvgPrev = avg(weightPts.slice(-14, -7))
   const wTrend = wAvgNow != null && wAvgPrev != null ? wAvgNow - wAvgPrev : null
 
+  const latestHr = [...metrics].reverse().find((m) => m.restingHr != null)
+  const hrAvg = avg(hrPts)
   const stepsAvg = avg(stepsPts)
   const sleepAvg = avg(sleepPts)
   const caloriesAvg = avg(caloriesPts)
@@ -59,17 +71,28 @@ export function BodyView() {
   }
 
   function saveManual() {
+    const wMin = kgToUnits(WEIGHT_MIN_KG, u)
+    const wMax = kgToUnits(WEIGHT_MAX_KG, u)
     const w = parseFloat(manualWeight)
-    const bf = parseFloat(manualBf)
-    if (!Number.isFinite(w) || w <= 0) return flash('Enter a valid weight')
-    const existing = metrics.find((m) => m.date === manualDate)
+    if (!Number.isFinite(w) || w < wMin || w > wMax) {
+      return flash(`Enter a weight between ${fmt(wMin, 0)} and ${fmt(wMax, 0)} ${u}`)
+    }
+    // Body fat is optional, but a value that was typed and is unusable must say so
+    // rather than flash "Saved ✓" and drop it.
+    let bodyFat: number | undefined
+    if (manualBf.trim() !== '') {
+      const bf = parseFloat(manualBf)
+      if (!Number.isFinite(bf) || bf < BF_MIN || bf > BF_MAX) {
+        return flash(`Body fat must be between ${BF_MIN} and ${BF_MAX}%`)
+      }
+      bodyFat = Math.round(bf * 10) / 10
+    }
+    // Only the fields being set are passed: upsertMetric merges onto the stored day, and
+    // sending `bodyFat: undefined` used to erase a reading the board had already logged.
     upsertMetric({
       date: manualDate,
       weight: Math.round(w * 10) / 10,
-      bodyFat: Number.isFinite(bf) && bf > 0 ? Math.round(bf * 10) / 10 : undefined,
-      muscle: existing?.muscle,
-      steps: existing?.steps,
-      sleepMin: existing?.sleepMin,
+      bodyFat,
       updatedAt: Date.now(),
       source: 'manual',
     })
@@ -176,18 +199,40 @@ export function BodyView() {
         </div>
       )}
 
+      {latestHr && (
+        <div class="card">
+          <div class="stat-row">
+            <div>
+              <div class="stat-num">{fmt(latestHr.restingHr!, 0)}</div>
+              <div class="stat-label">resting HR · {latestHr.date}</div>
+            </div>
+            {hrAvg != null && (
+              <div>
+                <div class="stat-num">{fmt(hrAvg, 0)}</div>
+                <div class="stat-label">14d avg (bpm)</div>
+              </div>
+            )}
+          </div>
+          {hrPts.length > 1 && <LineChart title="Resting HR (bpm)" points={hrPts} />}
+        </div>
+      )}
+
       <div class="card">
         <h3>Log weight</h3>
+        {/* The date picker is the widest control here and it does not shrink, so it gets
+            its own row; all four on one row measured 411px at a 390px viewport and pushed
+            Save off-screen. See `.weigh-in-row`. */}
         <div class="setting-row">
           <input
             class="set-input"
             type="date"
             value={manualDate}
             onInput={(e) => setManualDate((e.target as HTMLInputElement).value)}
-            style={{ flex: 1 }}
           />
+        </div>
+        <div class="setting-row weigh-in-row">
           <input
-            class="set-input narrow"
+            class="set-input"
             type="number"
             inputMode="decimal"
             placeholder={u}
@@ -195,7 +240,7 @@ export function BodyView() {
             onInput={(e) => setManualWeight((e.target as HTMLInputElement).value)}
           />
           <input
-            class="set-input narrow"
+            class="set-input"
             type="number"
             inputMode="decimal"
             placeholder="%"

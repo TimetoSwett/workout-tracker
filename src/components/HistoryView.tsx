@@ -5,6 +5,7 @@ import { setWorkouts } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
+import { localDate } from '../dates'
 
 function startOfWeek(d: Date): Date {
   const c = new Date(d)
@@ -27,7 +28,7 @@ export function HistoryView() {
   const weeks = useMemo(() => {
     const byWeek = new Map<string, number>()
     for (const w of workouts) {
-      const key = startOfWeek(new Date(w.startedAt)).toISOString().slice(0, 10)
+      const key = localDate(startOfWeek(new Date(w.startedAt)))
       byWeek.set(key, (byWeek.get(key) ?? 0) + volumeOf(w))
     }
     const out: { key: string; label: string; volume: number }[] = []
@@ -35,7 +36,7 @@ export function HistoryView() {
     for (let i = 7; i >= 0; i--) {
       const d = new Date(cur)
       d.setDate(d.getDate() - i * 7)
-      const key = d.toISOString().slice(0, 10)
+      const key = localDate(d)
       out.push({ key, label: `${d.getMonth() + 1}/${d.getDate()}`, volume: byWeek.get(key) ?? 0 })
     }
     return out

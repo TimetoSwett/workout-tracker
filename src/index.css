@@ -194,6 +194,24 @@ button {
   width: 70px;
 }
 
+/* Body -> Log weight. A `date` input carries a wide intrinsic minimum and will not shrink
+ * past it, so the row it shared could not fit the weight, body-fat and Save controls at a
+ * 390px viewport: it measured 411px and pushed Save outside the screen. The date now has a
+ * row to itself and this one holds the rest, splitting the width between the two inputs
+ * and wrapping rather than overflowing if the Save label ever runs long. */
+.weigh-in-row {
+  flex-wrap: wrap;
+}
+
+.weigh-in-row .set-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.weigh-in-row .btn {
+  flex: 0 0 auto;
+}
+
 .tabbar {
   position: fixed;
   bottom: 0;
@@ -221,6 +239,8 @@ button {
   align-items: center;
   gap: 2px;
   cursor: pointer;
+  /* Anchors the active-tab rule below. */
+  position: relative;
 }
 
 .tab-icon {
@@ -228,8 +248,32 @@ button {
   line-height: 1;
 }
 
+/* The accent on the active button only ever reached the caption: the icons are emoji, and a
+   colour-font glyph ignores `color`. So in `.logging.compact`, which zeroes the caption to buy
+   vertical space, nothing marked the selected tab at all.
+
+   Mark it with geometry and saturation instead of text colour, both of which survive a zeroed
+   font size and cost no vertical space: an accent rule drawn over the bar's own top border, and
+   desaturated icons on every tab but the active one. */
 .tabbar button.active {
   color: var(--accent);
+}
+
+.tabbar button.active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 26px;
+  margin-left: -13px;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+}
+
+.tabbar button:not(.active) .tab-icon {
+  filter: grayscale(1);
+  opacity: 0.6;
 }
 
 .log-header {
@@ -478,22 +522,13 @@ button {
 }
 
 .rest-timer {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(72px + env(safe-area-inset-bottom));
-  width: calc(100% - 28px);
-  max-width: 492px;
+  flex: none;
+  width: 100%;
   background: var(--card);
   border: 1px solid var(--accent-dim);
   border-radius: var(--radius);
   padding: 12px 16px;
-  z-index: 40;
   text-align: center;
-}
-
-.rest-timer.done {
-  border-color: var(--accent);
 }
 
 .rest-label {
@@ -503,10 +538,6 @@ button {
   letter-spacing: 0.1em;
 }
 
-.rest-timer.done .rest-label {
-  color: var(--accent);
-}
-
 .rest-time {
   font-size: 2rem;
   font-weight: 700;
@@ -514,16 +545,12 @@ button {
   margin: 2px 0;
 }
 
-.rest-timer.done .rest-time {
-  color: var(--accent);
-}
-
 .rest-bar {
   height: 4px;
   background: var(--card-2);
   border-radius: 2px;
   overflow: hidden;
-  margin-bottom: 10px;
+  margin-top: 6px;
 }
 
 .rest-fill {
@@ -549,7 +576,14 @@ button {
   padding: 10px 20px;
   border-radius: 20px;
   z-index: 60;
-  white-space: nowrap;
+  /* Not every status is short. A Samsung import reports counts, the converted bodyweight and
+     the first file-level complaint in one line, and a failed dynamic import reports a whole
+     module URL. `white-space: nowrap` with no width cap let that run off a 390px screen and
+     clipped the end of the message (TOM-37), so wrap instead; `anywhere` is what lets an
+     unbroken URL break mid-token rather than widen the document. */
+  max-width: calc(100vw - 32px);
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .toast.visible {
@@ -559,6 +593,10 @@ button {
   margin-top: 8px;
   background: var(--card-2);
   color: var(--text);
+  /* In-flow, so the cap is the content column, not the viewport — `main` already has side
+     padding and this sits inside it. */
+  max-width: 100%;
+  text-align: left;
 }
 
 .chart {
@@ -605,16 +643,29 @@ button {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .pr-row:last-child {
   border-bottom: none;
 }
 
+/* The label column claims a readable width before anything shrinks. A Best lifts value
+   like "225lbs (185×8, 2026-09-14)" is nowrap and eats most of a 390px card, and without
+   this the name was squeezed into a one-word-per-line column beside it. Now the value
+   drops to its own line instead, and the name stays on one. */
+.pr-row > :first-child {
+  flex: 1 1 12em;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
 .pr-val {
   color: var(--accent);
   font-weight: 600;
   white-space: nowrap;
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .workout-card {
@@ -693,8 +744,19 @@ button {
   flex-wrap: wrap;
 }
 
-.timeframe-row .btn.primary {
-  margin-left: auto;
+/* The window buttons wrap as one group. Previously they shared a row with Analyze, which
+   was pushed right with `margin-left: auto`, so at 390px "All" was orphaned onto line 2
+   at the far left with Analyze floating right beside it. */
+.timeframe-opts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1 1 auto;
+}
+
+/* The card is already a column flex with a gap; don't stack `.btn-row`'s own margin on it. */
+.analyze-bar .btn-row {
+  margin: 0;
 }
 
 .chat-card {
@@ -726,6 +788,122 @@ button {
 .chat-body {
   white-space: pre-wrap;
   overflow-wrap: break-word;
+}
+
+.thinking-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Markdown rendered from coach replies — see src/markdown.tsx. The block elements carry
+   their own spacing, so the container drops the `pre-wrap` that raw text needed; `.md-p`
+   keeps it so single newlines inside a paragraph still show. */
+.chat-body.md {
+  white-space: normal;
+}
+
+.chat-body.md > :first-child {
+  margin-top: 0;
+}
+
+.chat-body.md > :last-child {
+  margin-bottom: 0;
+}
+
+.md-p {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}
+
+.md-h {
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 12px 0 6px;
+}
+
+.md-h1 {
+  font-size: 1.1rem;
+}
+
+.md-h2 {
+  font-size: 1rem;
+}
+
+.md-h3 {
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.md-list {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.md-list li {
+  margin: 2px 0;
+}
+
+.md-list li.md-sub {
+  margin-left: 16px;
+  list-style-type: circle;
+}
+
+.md-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.88em;
+  background: var(--card-2);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.md-pre {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+
+.md-pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+}
+
+.md-hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}
+
+.md-link {
+  color: var(--accent);
+}
+
+.md-table-wrap {
+  margin: 0 0 8px;
+  overflow-x: auto;
+}
+
+.md-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.md-table th,
+.md-table td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.md-table th {
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .error-card {
@@ -948,3 +1126,89 @@ code {
     height: 150px;
   }
 }
+
+/* In-app update affordance (TOM-2). Sits at the top of <main> so it inherits the safe-area
+   padding already applied there, and takes one line so it never pushes the Log view off screen. */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--card-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+}
+
+.update-banner-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.update-progress {
+  height: 4px;
+  margin-top: 8px;
+  background: var(--card-2);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.update-progress > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+/* Reserve timer space outside the scrolling set editor. No overlay or sticky
+   element can cover focused fields, including when the viewport shrinks. */
+.app.logging { height: 100dvh; min-height: 0; }
+.logging main { display: flex; flex-direction: column; min-height: 0; }
+.active-log { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px; }
+.log-scroll { overflow-y: auto; min-height: 0; padding-bottom: 12px; }
+.active-log .rest-timer { max-width: none; padding: 8px; }
+.rest-summary { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rest-summary .rest-time { font-size: 1.25rem; }
+.rest-summary .rest-actions { flex: none; }
+.rest-summary button { flex-shrink: 0; }
+/* Use the existing timer row for completion, never the editor's space. Keep the
+   controls in layout so expiry cannot change the row height, even with a keyboard. */
+.rest-summary.has-status > :not(.rest-status) { visibility: hidden; }
+.rest-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.logging .tabbar { position: static; transform: none; flex: none; }
+.logging main { padding-bottom: 12px; overflow: auto; }
+
+/* Landscape with the keyboard up is the tightest posture the app has. Reserving the timer's
+   space fixed the overlap, but at a 214px visual viewport the fixed bands — 49px of timer, 22px
+   of page padding, 54px of tab bar — left the set editor 67px, a single row. Nothing was
+   covered or unreachable; it was just unusable.
+
+   Trim every band a little rather than drop one outright, so no affordance disappears and the
+   change reverses the moment the keyboard closes: the timer loses its "REST" caption (the big
+   countdown already says what it is), the tab bar keeps its icons but not its captions, and the
+   page padding and gaps shrink. That roughly doubles the editor. Paired with the explicit
+   reveal-on-resize in app.tsx, the row being typed into is scrolled into that space. */
+.app.logging.compact main { padding-top: calc(6px + var(--safe-top)); padding-bottom: 6px; }
+.app.logging.compact .active-log { gap: 6px; }
+.app.logging.compact .active-log .rest-timer { padding: 3px 8px; }
+.app.logging.compact .rest-label { display: none; }
+.app.logging.compact .log-header { margin-bottom: 6px; }
+/* Zeroing the button font size drops the caption text node, which has no element to target;
+   the icon sets its own size in rem so it is unaffected, and the caption stays in the
+   accessibility tree. Needs the #app prefix to out-specify `#app .tabbar button` above.
+   The selected tab does not ride on the caption — see the active rule and the desaturated
+   inactive icons near `.tabbar button.active` — so zeroing it here loses no affordance. */
+#app .logging.compact .tabbar button { padding: 5px 0 6px; gap: 0; font-size: 0; }
+#app .logging.compact .tabbar .tab-icon { font-size: 1.15rem; }

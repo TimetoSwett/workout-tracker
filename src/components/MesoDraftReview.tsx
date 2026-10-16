@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks'
 import type { Mesocycle, MesoPriority, MesoTemplateDay, MesoTemplateExercise, Settings, Template, Workout } from '../types'
 import { MUSCLE_GROUPS } from '../types'
-import { muscleGroupName } from '../mesoEngine'
+import { clampDeloadWeek, deloadWeekOf, muscleGroupName } from '../mesoEngine'
 import { collectKnownExerciseNames } from '../mesoDraft'
 import { uid } from '../store'
 import { ExercisePicker } from './ExercisePicker'
@@ -14,6 +14,8 @@ interface Draft {
   goal: string
   unit: 'lbs' | 'kg'
   weeksPlanned: number
+  /** 0-based, same as `Mesocycle.deloadWeek`. */
+  deloadWeek: number
   days: MesoTemplateDay[]
   priorities: Record<number, PriorityType>
 }
@@ -26,6 +28,9 @@ function draftFromMeso(m: Mesocycle): Draft {
     goal: m.goal ?? '',
     unit: m.unit,
     weeksPlanned: m.weeksPlanned,
+    // The coach can deliberately put the deload mid-block; honour what it drafted rather
+    // than assuming the last week.
+    deloadWeek: deloadWeekOf(m),
     days: m.days.map((d) => ({ ...d, exercises: d.exercises.map((ex) => ({ ...ex })) })),
     priorities,
   }
@@ -94,13 +99,14 @@ export function MesoDraftReview({ meso, settings, workouts, templates, mesocycle
       .filter(([, type]) => type !== 'maintain')
       .map(([id, type]) => ({ muscleGroupId: Number(id), type }))
     const now = Date.now()
+    const weeksPlanned = Math.max(1, draft.weeksPlanned)
     onAccept({
       id: meso.id,
       name,
       goal: draft.goal.trim() || undefined,
       unit: draft.unit,
-      weeksPlanned: Math.max(1, draft.weeksPlanned),
-      deloadWeek: Math.max(0, draft.weeksPlanned - 1),
+      weeksPlanned,
+      deloadWeek: clampDeloadWeek(draft.deloadWeek, weeksPlanned),
       days,
       priorities,
       status: 'active',
@@ -141,7 +147,7 @@ export function MesoDraftReview({ meso, settings, workouts, templates, mesocycle
           </div>
         </div>
         <div class="setting-row">
-          <span>Weeks (last week is the deload)</span>
+          <span>Weeks</span>
           <input
             class="set-input narrow"
             type="number"
@@ -150,9 +156,27 @@ export function MesoDraftReview({ meso, settings, workouts, templates, mesocycle
             value={draft.weeksPlanned}
             onInput={(e) => {
               const n = parseInt((e.target as HTMLInputElement).value, 10)
-              if (Number.isFinite(n) && n >= 1) patch((d) => ({ ...d, weeksPlanned: n }))
+              if (Number.isFinite(n) && n >= 1)
+                patch((d) => ({ ...d, weeksPlanned: n, deloadWeek: clampDeloadWeek(d.deloadWeek, n) }))
             }}
           />
+        </div>
+        <div class="setting-row">
+          <span>Deload week</span>
+          <select
+            class="select-input"
+            value={String(draft.deloadWeek)}
+            onChange={(e) =>
+              patch((d) => ({ ...d, deloadWeek: Number((e.target as HTMLSelectElement).value) }))
+            }
+          >
+            {Array.from({ length: Math.max(1, draft.weeksPlanned) }, (_, i) => (
+              <option key={i} value={String(i)}>
+                Week {i + 1}
+                {i === draft.weeksPlanned - 1 ? ' (last)' : ''}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

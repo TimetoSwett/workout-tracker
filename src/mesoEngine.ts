@@ -12,6 +12,17 @@ export interface MesoPosition {
   isFirstWeek: boolean
 }
 
+/** Keeps a deload week inside a block of `weeksPlanned` weeks. */
+export function clampDeloadWeek(week: number, weeksPlanned: number): number {
+  return Math.min(Math.max(0, week), Math.max(1, weeksPlanned) - 1)
+}
+
+/** The 0-based week the deload falls on. A missing value means the conventional last
+ *  week; a value outside the block is clamped into it. */
+export function deloadWeekOf(meso: Pick<Mesocycle, 'deloadWeek' | 'weeksPlanned'>): number {
+  return clampDeloadWeek(meso.deloadWeek ?? meso.weeksPlanned - 1, meso.weeksPlanned)
+}
+
 /** Where the next workout falls in the meso's repeating template, based on how many
  *  workouts have already been logged against it. No calendar constraint — just the
  *  next slot in sequence, whenever the user next trains. */
@@ -20,8 +31,7 @@ export function mesoPosition(meso: Mesocycle, workouts: Workout[]): MesoPosition
   const daysPerWeek = Math.max(1, meso.days.length)
   const weekIndex = Math.min(Math.floor(count / daysPerWeek), Math.max(0, meso.weeksPlanned - 1))
   const dayIndex = count % daysPerWeek
-  const deloadWeek = meso.deloadWeek ?? meso.weeksPlanned - 1
-  return { weekIndex, dayIndex, isDeload: weekIndex === deloadWeek, isFirstWeek: weekIndex === 0 }
+  return { weekIndex, dayIndex, isDeload: weekIndex === deloadWeekOf(meso), isFirstWeek: weekIndex === 0 }
 }
 
 const WEIGHT_INCREMENT = 5

@@ -1,4 +1,5 @@
 import type { LoggedExercise, LoggedSet, Mesocycle, MesoPriority, MesoTemplateDay, MesoTemplateExercise, MuscleFeedback, Workout } from './types'
+import { localDate } from './dates'
 
 /**
  * Minimal shape of an RP Strength export mesocycle — only the fields this
@@ -134,7 +135,7 @@ function mapDay(day: RpDay, mesoId: string, mesoName: string): Workout {
   }))
   return {
     id: `rp-day-${day.id}`,
-    date: new Date(startedAt).toISOString().slice(0, 10),
+    date: localDate(new Date(startedAt)),
     startedAt,
     endedAt,
     name: mesoName,

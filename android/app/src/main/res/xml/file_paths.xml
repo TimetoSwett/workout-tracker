@@ -2,4 +2,8 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-path name="my_images" path="." />
     <cache-path name="my_cache_images" path="." />
+    <!-- Where AppUpdatePlugin drops a downloaded release APK before handing it to the package
+         installer (TOM-2). cache-path "." above already covers it, but naming it explicitly keeps
+         the update path from depending on a Capacitor-generated entry name. -->
+    <cache-path name="updates" path="updates/" />
 </paths>
