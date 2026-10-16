@@ -5,6 +5,7 @@ import { getMetrics, subscribeMetrics, upsertMetric } from '../metricsStore'
 import { syncMetrics } from '../metricsSync'
 import { dropboxConfigured } from '../dropbox'
 import { localDate, localDateDaysAgo } from '../dates'
+import { resolveChartSelection, selectionAfterPick, type ChartSelection } from '../chartSelection'
 import { kgToUnits } from '../units'
 
 // Same bounds healthImport.ts already enforces on imported rows, so a typed reading and
@@ -347,11 +348,18 @@ function BarChart({
 }) {
   const max = Math.max(...points.map((p) => p.value), 1)
   // The newest reading starts selected: it is the one the board is looking for, and a
-  // readout that is always present cannot reflow the card on the first tap.
-  const [sel, setSel] = useState(points.length - 1)
+  // readout that is always present cannot reflow the card on the first tap. `null` means
+  // "follow the tip". A chosen earlier date is pinned by date, not by index — see
+  // chartSelection.ts for what a sync is allowed to do to that.
+  const [selection, setSelection] = useState<ChartSelection | null>(null)
+  function setSel(index: number) {
+    const next = selectionAfterPick(points, index)
+    setSelection((prev) =>
+      prev && prev.date === next.date && prev.followNewest === next.followNewest ? prev : next,
+    )
+  }
   const track = useRef<HTMLDivElement>(null)
-  // Clamp rather than trust: a sync or an import can shorten `points` under a stale index.
-  const i = Math.min(Math.max(sel, 0), points.length - 1)
+  const { index: i, date: selectedDate } = resolveChartSelection(points, selection)
   const cur = points[i]
 
   // Newest is rightmost, so an overflowing track opens on the wrong end by default.
@@ -359,6 +367,16 @@ function BarChart({
     const el = track.current
     if (el) el.scrollLeft = el.scrollWidth
   }, [points.length])
+
+  // If the keyboard is already in this chart when a sync moves the selection, keep the
+  // focus ring on the bar the readout is naming. Leave focus alone when it is elsewhere.
+  useEffect(() => {
+    const root = track.current
+    const active = document.activeElement
+    if (!root || !active || !root.contains(active)) return
+    const btn = root.querySelectorAll<HTMLElement>('.chart-col')[i]
+    if (btn && btn !== active) btn.focus()
+  }, [selectedDate])
 
   function onKeyDown(e: KeyboardEvent) {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
