@@ -307,6 +307,57 @@ button {
 
 .exercise-name {
   font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.text-btn {
+  background: var(--card-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  height: 34px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.history-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.history-head h3 {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.history-sessions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-sessions > li {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.history-date {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.history-sessions ol {
+  margin: 0;
+  padding-left: 1.2rem;
 }
 
 .icon-btn {

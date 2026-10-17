@@ -9,6 +9,7 @@ import { RestTimer } from './RestTimer'
 import { armRestAlert, type AlertOutcome } from '../restAlert'
 import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
+import { exerciseHistory, weightsFilledForward } from '../setEntry'
 
 const PUMP_VALUES = [0, 1, 2]
 const SORENESS_VALUES = [-1, 0, 1, 2, 3]
@@ -28,6 +29,8 @@ function restDoneStatus(o: AlertOutcome): string {
 export function LogView() {
   const { active, settings, workouts, templates, mesocycles } = useStore()
   const [picker, setPicker] = useState<'add' | number | null>(null)
+  const [historyId, setHistoryId] = useState<string | null>(null)
+  const weightBefore = useRef<number | null>(null)
   const [tick, setTick] = useState(0)
   const [toast, setToast] = useState('')
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -120,6 +123,19 @@ export function LogView() {
           : { ...ex, sets: ex.sets.map((set, j) => (j !== setIdx ? set : { ...set, ...s })) },
       )
       return { ...a, exercises }
+    })
+  }
+
+  /** The field already holds the typed weight. Spreading it waits until the edit is
+   *  committed (blur or Enter), and a cleared field stays on this set alone. */
+  function commitWeight(exIdx: number, setIdx: number) {
+    const previous = weightBefore.current
+    patch((a) => {
+      const ex = a.exercises[exIdx]
+      if (!ex) return a
+      const sets = weightsFilledForward(ex.sets, setIdx, previous)
+      if (sets === ex.sets) return a
+      return { ...a, exercises: a.exercises.map((e, i) => (i === exIdx ? { ...e, sets } : e)) }
     })
   }
 
@@ -377,6 +393,14 @@ export function LogView() {
           <div class="exercise-head">
             <span class="exercise-name">{ex.name}</span>
             <div class="btn-row" style={{ margin: 0 }}>
+              <button
+                class="text-btn"
+                type="button"
+                aria-label={`History for ${ex.name}`}
+                onClick={() => setHistoryId(ex.id)}
+              >
+                History
+              </button>
               <button class="icon-btn" title="Swap exercise (just for today)" onClick={() => setPicker(exIdx)}>
                 ⇄
               </button>
@@ -408,7 +432,12 @@ export function LogView() {
                   step="2.5"
                   placeholder={s.weightTarget != null ? String(s.weightTarget) : undefined}
                   value={s.weight ?? ''}
+                  onFocus={() => { weightBefore.current = s.weight }}
                   onInput={(e) => patchSet(exIdx, setIdx, { weight: numOrNull((e.target as HTMLInputElement).value) })}
+                  onBlur={() => commitWeight(exIdx, setIdx)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+                  }}
                 />
                 <input
                   class="set-input"
@@ -492,6 +521,18 @@ export function LogView() {
       </div>
     </div>
       {picker != null && <ExercisePicker onPick={pickExercise} onClose={() => setPicker(null)} />}
+      {historyId != null && active.exercises.some((ex) => ex.id === historyId) && (
+        <ExerciseHistory
+          name={active.exercises.find((ex) => ex.id === historyId)!.name}
+          sessions={exerciseHistory(
+            workouts,
+            active.exercises.find((ex) => ex.id === historyId)!,
+            active.id,
+          )}
+          unit={settings.units}
+          onClose={() => setHistoryId(null)}
+        />
+      )}
       {toast && <div class="toast">{toast}</div>}
     </div>
   )
@@ -500,6 +541,60 @@ export function LogView() {
 function numOrNull(v: string): number | null {
   const n = parseFloat(v)
   return Number.isFinite(n) && n >= 0 ? n : null
+}
+
+function formatHistorySet(weight: number | null, reps: number | null, unit: string): string {
+  const load = weight == null ? null : `${weight} ${unit}`
+  const repsText = reps == null ? null : `${reps} ${reps === 1 ? 'rep' : 'reps'}`
+  if (load && repsText) return `${load} × ${repsText}`
+  return load ?? repsText ?? 'Completed'
+}
+
+function ExerciseHistory({
+  name,
+  sessions,
+  unit,
+  onClose,
+}: {
+  name: string
+  sessions: ReturnType<typeof exerciseHistory>
+  unit: string
+  onClose: () => void
+}) {
+  return (
+    <div class="modal-backdrop" onClick={onClose}>
+      <div
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`History for ${name}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div class="history-head">
+          <h3>{name}</h3>
+          <button class="text-btn" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {sessions.length === 0 ? (
+          <p class="muted">No completed sets for this exercise yet.</p>
+        ) : (
+          <ul class="history-sessions">
+            {sessions.map((sess, i) => (
+              <li key={`${sess.workoutId}-${i}`}>
+                <div class="history-date">{sess.date}</div>
+                <ol>
+                  {sess.sets.map((s, j) => (
+                    <li key={j}>{formatHistorySet(s.weight, s.reps, unit)}</li>
+                  ))}
+                </ol>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function lastWeight(ex: LoggedExercise): number | null {
