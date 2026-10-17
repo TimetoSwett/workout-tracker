@@ -4,6 +4,7 @@ import { MUSCLE_GROUPS } from '../types'
 import { getState, saveMesocycle, setHistory, setSettings, uid, upsertMesocycle, useStore } from '../store'
 import { parseRpExport } from '../rpImport'
 import { mesoPosition, muscleGroupName } from '../mesoEngine'
+import { cloneMesoAsTemplate } from '../mesoClone'
 import { ExercisePicker } from './ExercisePicker'
 
 type PriorityType = MesoPriority['type']
@@ -48,6 +49,7 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
   const [pickerDay, setPickerDay] = useState<number | null>(null)
   const [importMsg, setImportMsg] = useState('')
   const [showMuscleGroups, setShowMuscleGroups] = useState(false)
+  const [confirmCloneId, setConfirmCloneId] = useState<string | null>(null)
 
   const live = [...mesocycles].sort((a, b) => b.createdAt - a.createdAt)
   const hasAny = live.length > 0
@@ -101,6 +103,11 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
 
   function completeMeso(m: Mesocycle) {
     upsertMesocycle({ ...m, status: 'complete', finishedAt: Date.now(), updatedAt: Date.now() })
+  }
+
+  function useImportedAsTemplate(m: Mesocycle) {
+    saveMesocycle(cloneMesoAsTemplate(m, Date.now(), uid))
+    setConfirmCloneId(null)
   }
 
   function addExercise(name: string) {
@@ -326,6 +333,28 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
                   </button>
                 )}
               </div>
+            )}
+            {m.imported && (
+              confirmCloneId === m.id ? (
+                <div class="btn-row">
+                  <p class="muted small">
+                    Copies this structure into a new plan and starts progression over. The imported meso is not changed.
+                    A plan you already have active is marked complete.
+                  </p>
+                  <button class="btn small primary" onClick={() => useImportedAsTemplate(m)}>
+                    Use it
+                  </button>
+                  <button class="btn small ghost" onClick={() => setConfirmCloneId(null)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div class="btn-row">
+                  <button class="btn small ghost" onClick={() => setConfirmCloneId(m.id)}>
+                    Use as template
+                  </button>
+                </div>
+              )
             )}
           </div>
         )

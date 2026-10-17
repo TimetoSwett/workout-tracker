@@ -360,6 +360,82 @@ button {
   padding-left: 1.2rem;
 }
 
+.cal {
+  gap: 8px;
+}
+
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cal-weekdays,
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  text-align: center;
+}
+
+.cal-weekdays span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.cal-day {
+  position: relative;
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text);
+  border-radius: 8px;
+  min-height: 36px;
+  min-width: 0;
+  padding: 4px 0 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.cal-day.out {
+  color: var(--muted);
+}
+
+.cal-day.today {
+  border-color: var(--accent);
+}
+
+.cal-day.selected {
+  background: var(--accent);
+  color: #06251a;
+}
+
+.cal-day.has::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.cal-day.selected.has::after {
+  background: #06251a;
+}
+
+.past-session {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+
+.past-session .set-row {
+  grid-template-columns: 28px 1fr 1fr 40px;
+}
+
 .icon-btn {
   background: var(--card-2);
   border: 1px solid var(--border);
