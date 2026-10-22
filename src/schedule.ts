@@ -1,5 +1,5 @@
 import type { Mesocycle, Workout } from './types'
-import { addDays, compareLocalDates, isLocalDate, weekdayOf } from './dates'
+import { addDays, compareLocalDates, dateOf, isLocalDate, weekdayOf } from './dates'
 
 /** One session the plan expects, placed on a local calendar day. */
 export interface PlannedSession {
@@ -27,7 +27,8 @@ export function isValidTrainingWeekdays(v: unknown): v is number[] {
  *
  *  Slots already logged against the meso (done or skipped, not deleted) are used up, exactly
  *  as `mesoPosition` counts them. The remaining slots go on the next `trainingWeekdays` on or
- *  after the later of `today` and `startDate`, one per training day, in order. A planned day
+ *  after the later of `today` and `startDate`, one per training day, in order. A training day
+ *  that already has a logged workout (done or skipped) for this meso is skipped. A planned day
  *  that passes unlogged is not overdue: its slot simply moves to the next training day.
  *  Nothing is planned past the meso's last slot, for a finished or deleted meso, or when
  *  `startDate`/`trainingWeekdays` are missing or invalid. `from`/`to` (inclusive) and `limit`
@@ -51,12 +52,18 @@ export function plannedSessions(
   if (slot >= total) return []
 
   const weekdays = new Set(trainingWeekdays)
+  const taken = new Set<string>()
+  for (const w of workouts) {
+    if (w.mesoId !== meso.id || w.deleted) continue
+    const d = dateOf(w)
+    if (d) taken.add(d)
+  }
   const out: PlannedSession[] = []
   let date = compareLocalDates(startDate, today) > 0 ? startDate : today
   // Every 7 days holds at least one training weekday, so this bounds the walk.
   for (let guard = (total - slot) * 7 + 7; guard > 0 && slot < total; guard--, date = addDays(date, 1)) {
     if (to !== undefined && compareLocalDates(date, to) > 0) break
-    if (!weekdays.has(weekdayOf(date))) continue
+    if (!weekdays.has(weekdayOf(date)) || taken.has(date)) continue
     const dayIndex = slot % daysPerWeek
     if (from === undefined || compareLocalDates(date, from) >= 0) {
       out.push({ date, week: Math.floor(slot / daysPerWeek), dayIndex, slot, label: meso.days[dayIndex]?.label })

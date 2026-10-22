@@ -85,6 +85,18 @@ const dates = (s: { date: string }[]) => s.map((p) => p.date)
   assert.equal(s.length, 3)
 }
 
+// a training day already holding a done or skipped workout of this meso gets no planned slot
+{
+  const s = plannedSessions(meso(), [logged()], { today: '2026-10-19' })
+  assert.deepEqual(dates(s), ['2026-10-22', '2026-10-26', '2026-10-29'])
+  assert.equal(s[0].slot, 1)
+  const sk = plannedSessions(meso(), [logged({ status: 'skipped' })], { today: '2026-10-19' })
+  assert.equal(sk[0].date, '2026-10-22')
+  // deleted and other-meso workouts do not occupy the day
+  const o = plannedSessions(meso(), [logged({ deleted: true }), logged({ mesoId: 'other' })], { today: '2026-10-19' })
+  assert.equal(o[0].date, '2026-10-19')
+}
+
 // several sessions on one day use up several slots
 {
   const s = plannedSessions(meso(), [logged(), logged(), logged()], { today: '2026-10-19' })
