@@ -38,6 +38,8 @@ for (const tz of ZONES) {
     assert.equal(addDays('2026-12-31', 1), '2027-01-01', tz)
     assert.equal(addDays('2026-03-01', 0), '2026-03-01', tz)
     assert.equal(addDays('2026-01-01', 365), '2027-01-01', tz)
+    assert.equal(addDays('0050-12-31', 1), '0051-01-01', tz) // years 0–99 are not mapped to 19xx
+    assert.equal(addDays('0099-01-01', -1), '0098-12-31', tz)
     assert.throws(() => addDays('2026-02-30', 1), RangeError)
 
     assert.deepEqual(
