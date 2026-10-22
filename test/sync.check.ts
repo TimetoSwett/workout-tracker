@@ -235,6 +235,62 @@ async function main() {
     eq(d.metricsStore.getMetrics().length, 2, 'both metrics survive')
   })
 
+  console.log('\nplan schedule fields')
+  await check('startDate and trainingWeekdays round-trip through merge, and old plans still load', async () => {
+    cloud = {}
+    const base = {
+      id: 'm1', name: 'Plan', unit: 'lbs', weeksPlanned: 4, days: [], priorities: [],
+      status: 'active', createdAt: 1, updatedAt: 1,
+    } as const
+    const scheduled = { ...base, startDate: '2026-10-19', trainingWeekdays: [1, 4] }
+    const a = await device('lbs')
+    a.store.setHistory([], [scheduled, { ...base, id: 'old' }] as never)
+    eq(await a.sync(), null, 'sender sync succeeded')
+    const b = await device('lbs')
+    eq(await b.sync(), null, 'receiver sync succeeded')
+    const got = b.store.getState().mesocycles
+    eq(got.find((m) => m.id === 'm1'), scheduled, 'scheduled plan intact')
+    eq(got.find((m) => m.id === 'old'), { ...base, id: 'old' }, 'old plan untouched')
+    // a later edit on b (newer updatedAt) wins on a, fields and all
+    const edited = { ...scheduled, startDate: '2026-11-02', trainingWeekdays: [0, 3, 5], updatedAt: 2 }
+    b.store.setHistory([], [edited, { ...base, id: 'old' }] as never)
+    eq(await b.sync(), null, 'edit sync succeeded')
+    eq(await a.sync(), null, 'sender pulls the edit')
+    eq(a.store.getState().mesocycles.find((m) => m.id === 'm1'), edited, 'edit round-tripped')
+  })
+
+  await check('schedule fields: old-build cloud record is repaired, fresh device restores, null clear sticks', async () => {
+    cloud = {}
+    revisions = {}
+    const base = {
+      id: 'm2', name: 'Plan', unit: 'lbs', weeksPlanned: 4, days: [], priorities: [],
+      status: 'active', createdAt: 1, updatedAt: 2,
+    } as const
+    const scheduled = { ...base, startDate: '2026-10-19', trainingWeekdays: [1, 4] }
+    // the cloud holds the plan exactly as an old build wrote it: newer, no schedule keys
+    cloud['/mesocycles.jsonl'] = JSON.stringify(base) + '\n'
+    const a = await device('lbs')
+    a.store.setHistory([], [{ ...scheduled, updatedAt: 1 }] as never)
+    eq(await a.sync(), null, 'A sync')
+    const stored = JSON.parse(cloud['/mesocycles.jsonl'].trim())
+    eq([stored.startDate, stored.trainingWeekdays, stored.updatedAt], ['2026-10-19', [1, 4], 2], 'cloud record repaired')
+    eq(a.store.getState().mesocycles[0], scheduled, 'A keeps schedule')
+    const fresh = await device('lbs')
+    eq(await fresh.sync(), null, 'fresh device sync')
+    eq(fresh.store.getState().mesocycles[0], scheduled, 'fresh device restores schedule')
+    // clearing the schedule is an explicit null and must not be resurrected
+    a.store.setHistory([], [{ ...base, updatedAt: 3, startDate: null, trainingWeekdays: null }] as never)
+    eq(await a.sync(), null, 'A clear sync')
+    eq(await fresh.sync(), null, 'fresh pulls clear')
+    eq(await a.sync(), null, 'A re-syncs')
+    for (const d of [a, fresh]) {
+      const got = d.store.getState().mesocycles[0]
+      eq([got.startDate, got.trainingWeekdays], [null, null], 'cleared locally')
+    }
+    const after = JSON.parse(cloud['/mesocycles.jsonl'].trim())
+    eq([after.startDate, after.trainingWeekdays], [null, null], 'cloud stays cleared')
+  })
+
   console.log(`\n${checks - failures}/${checks} checks passed`)
   if (failures) process.exit(1)
 }

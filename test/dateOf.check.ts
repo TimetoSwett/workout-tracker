@@ -26,6 +26,8 @@ for (const tz of ZONES) {
       assert.equal(isLocalDate(bad), false, `${tz} ${bad}`)
     assert.equal(isLocalDate('2027-02-29'), false, tz)
     assert.equal(parseLocalDate('2026-02-30'), null, tz)
+    assert.equal(isLocalDate('0000-02-29'), true, tz)
+    assert.equal(isLocalDate('1900-02-29'), false, tz)
     const p = parseLocalDate('2026-03-08')!
     assert.deepEqual([p.getFullYear(), p.getMonth(), p.getDate(), p.getHours(), p.getMinutes()], [2026, 2, 8, 0, 0], tz)
 
@@ -40,6 +42,8 @@ for (const tz of ZONES) {
     assert.equal(addDays('2026-01-01', 365), '2027-01-01', tz)
     assert.equal(addDays('0050-12-31', 1), '0051-01-01', tz) // years 0–99 are not mapped to 19xx
     assert.equal(addDays('0099-01-01', -1), '0098-12-31', tz)
+    assert.equal(addDays('0000-02-28', 1), '0000-02-29', tz) // year 0 is a leap year
+    assert.equal(addDays('0000-02-28', 2), '0000-03-01', tz)
     assert.throws(() => addDays('2026-02-30', 1), RangeError)
 
     assert.deepEqual(
