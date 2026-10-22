@@ -1,5 +1,6 @@
 import type { Mesocycle, Workout } from './types'
 import { addDays, compareLocalDates, dateOf, isLocalDate, weekdayOf } from './dates'
+import { dayMarkers } from './calendar'
 
 /** One session the plan expects, placed on a local calendar day. */
 export interface PlannedSession {
@@ -70,6 +71,52 @@ export function plannedSessions(
       if (limit !== undefined && out.length >= limit) break
     }
     slot++
+  }
+  return out
+}
+
+/** Planned sessions of `meso` between `from` and `to` (inclusive). No plan, or one without a
+ *  usable schedule, plans nothing. Days before `today` never hold a plan: unlogged days slide. */
+export function plannedForRange(
+  meso: Mesocycle | null | undefined,
+  workouts: Workout[],
+  today: string,
+  from: string,
+  to: string,
+): PlannedSession[] {
+  if (!meso || compareLocalDates(from, to) > 0) return []
+  return plannedSessions(meso, workouts, { today, from, to })
+}
+
+/** A planned session can be started once its day has come; later days are read-only. */
+export function canStartPlanned(date: string, today: string): boolean {
+  return isLocalDate(date) && isLocalDate(today) && compareLocalDates(date, today) <= 0
+}
+
+export interface UpcomingDay {
+  date: string
+  planned: PlannedSession[]
+  done: number
+  skipped: number
+}
+
+/** `count` days from `today` on (default 7: today..today+6), each with its planned sessions
+ *  and what is already logged that day. */
+export function nextDays(
+  meso: Mesocycle | null | undefined,
+  workouts: Workout[],
+  today: string,
+  count = 7,
+): UpcomingDay[] {
+  if (!isLocalDate(today) || count < 1) return []
+  const last = addDays(today, count - 1)
+  const planned = plannedForRange(meso, workouts, today, today, last)
+  const markers = dayMarkers(workouts, { from: today, to: last })
+  const out: UpcomingDay[] = []
+  for (let i = 0; i < count; i++) {
+    const date = addDays(today, i)
+    const m = markers.get(date)
+    out.push({ date, planned: planned.filter((p) => p.date === date), done: m?.done ?? 0, skipped: m?.skipped ?? 0 })
   }
   return out
 }
