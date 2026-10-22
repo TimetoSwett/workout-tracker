@@ -81,14 +81,33 @@ function load(): Stored {
 let state: Stored = load()
 const listeners = new Set<() => void>()
 
+let storageError: string | null = null
+
+/** Set when the last save to localStorage failed (usually the quota). In-memory state is still current. */
+export function getStorageError(): string | null {
+  return storageError
+}
+
+function trySave(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+    storageError = null
+  } catch (e) {
+    const quota = e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+    storageError = quota
+      ? 'Browser storage is full, so recent changes are only kept until this tab closes. Sync to Dropbox to keep them.'
+      : `Could not save to browser storage: ${e instanceof Error ? e.message : String(e)}`
+  }
+}
+
 function saveActive() {
   const { active, templates, settings } = state
-  localStorage.setItem(ACTIVE_KEY, JSON.stringify({ active, templates, settings } satisfies ActiveSlice))
+  trySave(ACTIVE_KEY, { active, templates, settings } satisfies ActiveSlice)
 }
 
 function saveHistory() {
   const { workouts, mesocycles } = state
-  localStorage.setItem(HISTORY_KEY, JSON.stringify({ workouts, mesocycles } satisfies HistorySlice))
+  trySave(HISTORY_KEY, { workouts, mesocycles } satisfies HistorySlice)
 }
 
 function emit(changed: { active?: boolean; history?: boolean }) {
