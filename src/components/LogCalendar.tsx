@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import type { LoggedSet, Workout } from '../types'
-import { commitPastEdit, localDatesWithWorkouts, monthGrid, workoutsOnLocalDate } from '../calendar'
+import { commitPastEdit, dayMarkers, monthGrid, workoutsOnLocalDate } from '../calendar'
 import { localDate } from '../dates'
 import { getState, upsertWorkout } from '../store'
 import { sync } from '../sync'
@@ -48,7 +48,7 @@ export function LogCalendar({
   const [selected, setSelected] = useState<string | null>(null)
   const [draft, setDraft] = useState<Workout | null>(null)
 
-  const marked = localDatesWithWorkouts(workouts)
+  const markers = dayMarkers(workouts)
   const cells = monthGrid(year, monthIndex)
   const sessions = selected ? workoutsOnLocalDate(workouts, selected) : []
   const monthLabel = new Date(year, monthIndex, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
@@ -118,13 +118,13 @@ export function LogCalendar({
           </div>
           <div class="cal-grid">
             {cells.map((cell) => {
-              const count = workoutsOnLocalDate(workouts, cell.date).length
+              const { done: count = 0, skipped = 0 } = markers.get(cell.date) ?? {}
               const classes = [
                 'cal-day',
                 cell.inMonth ? '' : 'out',
                 cell.date === today ? 'today' : '',
                 cell.date === selected ? 'selected' : '',
-                marked.has(cell.date) ? 'has' : '',
+                count > 0 ? 'has' : skipped > 0 ? 'skipped' : '',
               ]
                 .filter(Boolean)
                 .join(' ')
@@ -133,7 +133,7 @@ export function LogCalendar({
                   key={cell.date}
                   type="button"
                   class={classes}
-                  aria-label={`${cell.date}, ${count} workout${count === 1 ? '' : 's'}`}
+                  aria-label={`${cell.date}, ${count} workout${count === 1 ? '' : 's'}${skipped > 0 ? `, ${skipped} skipped` : ''}`}
                   aria-pressed={cell.date === selected}
                   onClick={() => pickDay(cell.date)}
                 >
@@ -217,11 +217,11 @@ export function LogCalendar({
                   <div key={w.id} class="past-session">
                     <div class="workout-title">{w.name ?? w.activity?.type ?? 'Workout'}</div>
                     <div class="muted small">
-                      {clock(w.startedAt)}
+                      {w.status === 'skipped' ? 'Skipped · ' : ''}{clock(w.startedAt)}
                       {w.activity ? ` · ${w.activity.durationMin} min` : ''}
                       {w.exercises.length > 0 ? ` · ${w.exercises.map((ex) => ex.name).join(' · ')}` : ''}
                     </div>
-                    {w.id !== activeId && (
+                    {w.id !== activeId && w.status !== 'skipped' && (
                       <button class="btn small ghost" type="button" onClick={() => setDraft(copyWorkout(w))}>
                         Edit
                       </button>
