@@ -118,6 +118,11 @@ export interface Mesocycle {
   unit: 'lbs' | 'kg'
   weeksPlanned: number
   deloadWeek?: number
+  /** Local `YYYY-MM-DD` the plan's schedule starts on. Optional; without it (or `null`) nothing is scheduled.
+   *  `null` is an explicit clear, so sync doesn't restore the field from an older record. */
+  startDate?: string | null
+  /** Weekdays trained, 0 = Sunday .. 6, ascending, one per training day in a week. `null` = explicit clear. */
+  trainingWeekdays?: number[] | null
   days: MesoTemplateDay[]
   priorities: MesoPriority[]
   status: 'active' | 'complete'

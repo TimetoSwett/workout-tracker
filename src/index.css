@@ -411,7 +411,8 @@ button {
   color: #06251a;
 }
 
-.cal-day.has::after {
+.cal-day.has::after,
+.cal-day.skipped::after {
   content: '';
   position: absolute;
   bottom: 4px;
@@ -421,6 +422,13 @@ button {
   margin-left: -2px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+.cal-day.skipped::after {
+  background: var(--muted);
+  width: 8px;
+  height: 2px;
+  margin-left: -4px;
 }
 
 .cal-day.selected.has::after {

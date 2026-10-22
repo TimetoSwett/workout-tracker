@@ -5,6 +5,9 @@ import type { Mesocycle } from './types'
  *  The copy gets a new meso id, new day ids, and new exercise ids, so logged
  *  workouts on the original cannot drive its targets. Completion is reset:
  *  the copy is an active plan with no finish time. `source` is not modified.
+ *
+ *  Schedule: `trainingWeekdays` is kept (the weekday pattern is part of the plan's shape);
+ *  `startDate` is dropped (a reused plan starts fresh, so the user picks a new start).
  */
 export function cloneMesoAsTemplate(source: Mesocycle, now: number, newId: () => string): Mesocycle {
   return {
@@ -13,6 +16,7 @@ export function cloneMesoAsTemplate(source: Mesocycle, now: number, newId: () =>
     unit: source.unit,
     weeksPlanned: Math.max(1, source.weeksPlanned || 0),
     ...(source.deloadWeek != null ? { deloadWeek: source.deloadWeek } : {}),
+    ...(source.trainingWeekdays ? { trainingWeekdays: [...source.trainingWeekdays] } : {}),
     days: source.days.map((day) => ({
       id: newId(),
       label: day.label,
