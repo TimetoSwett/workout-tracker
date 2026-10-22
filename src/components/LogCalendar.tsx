@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks'
 import type { LoggedSet, Workout } from '../types'
-import { commitPastEdit, localDatesWithWorkouts, monthGrid, workoutsOnLocalDate } from '../calendar'
+import { commitPastEdit, dayMarkers, monthGrid, workoutsOnLocalDate } from '../calendar'
 import { localDate } from '../dates'
 import { getState, upsertWorkout } from '../store'
 import { sync } from '../sync'
@@ -48,7 +48,7 @@ export function LogCalendar({
   const [selected, setSelected] = useState<string | null>(null)
   const [draft, setDraft] = useState<Workout | null>(null)
 
-  const marked = localDatesWithWorkouts(workouts)
+  const markers = dayMarkers(workouts)
   const cells = monthGrid(year, monthIndex)
   const sessions = selected ? workoutsOnLocalDate(workouts, selected) : []
   const monthLabel = new Date(year, monthIndex, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
@@ -118,13 +118,13 @@ export function LogCalendar({
           </div>
           <div class="cal-grid">
             {cells.map((cell) => {
-              const count = workoutsOnLocalDate(workouts, cell.date).length
+              const count = markers.get(cell.date)?.done ?? 0
               const classes = [
                 'cal-day',
                 cell.inMonth ? '' : 'out',
                 cell.date === today ? 'today' : '',
                 cell.date === selected ? 'selected' : '',
-                marked.has(cell.date) ? 'has' : '',
+                count > 0 ? 'has' : '',
               ]
                 .filter(Boolean)
                 .join(' ')
