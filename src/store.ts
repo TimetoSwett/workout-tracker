@@ -62,7 +62,7 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
     const rawActive = existing<unknown>(ACTIVE_KEY)
     const rawHistory = existing<unknown>(HISTORY_KEY)
     // Only a well-formed slice may win over wt.v1; anything else is re-migrated.
-    const savedActive = isObj(rawActive) && isObj(rawActive.settings) && Array.isArray(rawActive.templates) ? (rawActive as unknown as ActiveSlice) : null
+    const savedActive = isObj(rawActive) && isObj(rawActive.settings) && Array.isArray(rawActive.templates) && rawActive.templates.every(isObj) ? (rawActive as unknown as ActiveSlice) : null
     const savedHistory =
       isObj(rawHistory) &&
       Array.isArray(rawHistory.workouts) &&
@@ -72,12 +72,13 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
         ? (rawHistory as unknown as HistorySlice)
         : null
     const a: ActiveSlice = savedActive
-      ? { active: savedActive.active ?? activeSlice.active, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
+      ? { active: 'active' in savedActive ? (savedActive.active ?? null) : activeSlice.active, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
       : activeSlice
     const h: HistorySlice = savedHistory
       ? { workouts: savedHistory.workouts ?? [], mesocycles: savedHistory.mesocycles ?? [] }
       : historySlice
-    if (!savedActive) trySave(ACTIVE_KEY, a)
+    // Rewrite the active slice if it was missing or lacked `active`, so a recovered legacy workout persists.
+    if (!savedActive || !('active' in savedActive)) trySave(ACTIVE_KEY, a)
     if (!savedHistory) trySave(HISTORY_KEY, h)
     if (!storageErrors.has(ACTIVE_KEY) && !storageErrors.has(HISTORY_KEY)) {
       try {

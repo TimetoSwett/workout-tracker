@@ -43,4 +43,28 @@ assert.ok(mem.has('wt.v1'), 'startup survives a failing removeItem')
   assert.equal((store.getState().active as any)?.id, 'fake-active', 'legacy active workout is kept')
 }
 
+// Reload twice: the recovered legacy workout must be saved before wt.v1 goes.
+{
+  const legacyActive = { id: 'fake-active2', startedAt: 1764600000000, exercises: [] }
+  const { mem } = boot(null, false, { workouts: [], mesocycles: [], active: legacyActive }, JSON.stringify({ templates: [], settings: {} }))
+  assert.ok(!mem.has('wt.v1'))
+  assert.equal(JSON.parse(mem.get('wt.active.v1')!).active?.id, 'fake-active2', 'recovered workout is written to the split key')
+  ;(globalThis as any).localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) }
+  delete require.cache[path]
+  const again = require(path) as typeof import('../src/store')
+  assert.equal((again.getState().active as any)?.id, 'fake-active2', 'survives a second reload')
+}
+
+// An active:null saved on purpose (finished/cancelled) must not bring the legacy workout back.
+{
+  const { store } = boot(null, false, { workouts: [], mesocycles: [], active: { id: 'fake-stale', startedAt: 1, exercises: [] } }, JSON.stringify({ active: null, templates: [], settings: {} }))
+  assert.equal(store.getState().active, null, 'deliberate active:null wins')
+}
+
+// templates:[null] falls back to legacy templates.
+{
+  const { store } = boot(null, false, { workouts: [], mesocycles: [], templates: [{ id: 'fake-t', name: 'Fake', exercises: [] }] }, JSON.stringify({ templates: [null], settings: {} }))
+  assert.deepEqual(store.getState().templates.map((t: any) => t.id), ['fake-t'], 'legacy templates kept over bad elements')
+}
+
 console.log('storageMigrationInvalid: checks passed')
