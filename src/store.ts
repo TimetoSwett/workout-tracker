@@ -48,10 +48,27 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
     }
     // If the split save fails (e.g. storage full), keep the old key so nothing is lost,
     // run from the parsed data in memory, and surface the error instead of starting empty.
-    trySave(ACTIVE_KEY, activeSlice)
-    trySave(HISTORY_KEY, historySlice)
+    // On a retry, a split key that already saved holds newer data than wt.v1: keep it.
+    const existing = <T,>(key: string): T | null => {
+      try {
+        const v = localStorage.getItem(key)
+        return v ? (JSON.parse(v) as T) : null
+      } catch {
+        return null
+      }
+    }
+    const savedActive = existing<ActiveSlice>(ACTIVE_KEY)
+    const savedHistory = existing<HistorySlice>(HISTORY_KEY)
+    const a: ActiveSlice = savedActive
+      ? { active: savedActive.active ?? null, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
+      : activeSlice
+    const h: HistorySlice = savedHistory
+      ? { workouts: savedHistory.workouts ?? [], mesocycles: savedHistory.mesocycles ?? [] }
+      : historySlice
+    if (!savedActive) trySave(ACTIVE_KEY, a)
+    if (!savedHistory) trySave(HISTORY_KEY, h)
     if (!storageErrors.has(ACTIVE_KEY) && !storageErrors.has(HISTORY_KEY)) localStorage.removeItem(OLD_KEY)
-    return { activeSlice, historySlice }
+    return { activeSlice: a, historySlice: h }
   }
 }
 
