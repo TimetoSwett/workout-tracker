@@ -3,7 +3,7 @@ import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template
 import { getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
-import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
+import { buildSkippedWorkout, generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { LogCalendar } from './LogCalendar'
 import { RestTimer } from './RestTimer'
@@ -11,6 +11,7 @@ import { armRestAlert, type AlertOutcome } from '../restAlert'
 import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
 import { exerciseHistory, weightsFilledForward } from '../setEntry'
+import { isScoringWorkout } from '../records'
 
 const PUMP_VALUES = [0, 1, 2]
 const SORENESS_VALUES = [-1, 0, 1, 2, 3]
@@ -29,6 +30,7 @@ function restDoneStatus(o: AlertOutcome): string {
 
 export function LogView() {
   const { active, settings, workouts, templates, mesocycles } = useStore()
+  const trainingWorkouts = workouts.filter(isScoringWorkout)
   const [picker, setPicker] = useState<'add' | number | null>(null)
   const [historyId, setHistoryId] = useState<string | null>(null)
   const weightBefore = useRef<number | null>(null)
@@ -209,6 +211,17 @@ export function LogView() {
     saveFinished(trimmed)
   }
 
+  function skipMesoDay() {
+    if (!activeMeso || getState().active) return
+    const pos = mesoPosition(activeMeso, getState().workouts)
+    const day = activeMeso.days[pos.dayIndex]
+    if (!day || !confirm(`Skip ${day.label}? This advances the plan to the next day.`)) return
+    const now = Date.now()
+    upsertWorkout(buildSkippedWorkout(activeMeso, pos, now, uid()))
+    showToast('Day skipped')
+    if (dropboxConfigured(settings)) sync()
+  }
+
   function startMesoWorkout() {
     if (!activeMeso) return
     const pos = mesoPosition(activeMeso, workouts)
@@ -325,6 +338,11 @@ export function LogView() {
                   <button class="btn primary big" onClick={startMesoWorkout}>
                     Start {day?.label ?? 'workout'}
                   </button>
+                  {day && (
+                    <button class="btn ghost" onClick={skipMesoDay}>
+                      Skip day
+                    </button>
+                  )}
                 </>
               )
             })()}
@@ -347,14 +365,14 @@ export function LogView() {
             ))}
           </div>
         )}
-        {workouts.length > 0 && (
+        {trainingWorkouts.length > 0 && (
           <div class="card stat-row">
             <div>
-              <div class="stat-num">{workouts.length}</div>
+              <div class="stat-num">{trainingWorkouts.length}</div>
               <div class="stat-label">workouts logged</div>
             </div>
             <div>
-              <div class="stat-num">{workouts.filter((w) => w.date >= localDateDaysAgo(7)).length}</div>
+              <div class="stat-num">{trainingWorkouts.filter((w) => w.date >= localDateDaysAgo(7)).length}</div>
               <div class="stat-label">this week</div>
             </div>
           </div>

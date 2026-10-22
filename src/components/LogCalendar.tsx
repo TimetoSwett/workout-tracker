@@ -48,7 +48,8 @@ export function LogCalendar({
   const [selected, setSelected] = useState<string | null>(null)
   const [draft, setDraft] = useState<Workout | null>(null)
 
-  const marked = localDatesWithWorkouts(workouts)
+  // Swap this filter for the shared day-marker helper when available.
+  const marked = localDatesWithWorkouts(workouts.filter((w) => w.status !== 'skipped'))
   const cells = monthGrid(year, monthIndex)
   const sessions = selected ? workoutsOnLocalDate(workouts, selected) : []
   const monthLabel = new Date(year, monthIndex, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })

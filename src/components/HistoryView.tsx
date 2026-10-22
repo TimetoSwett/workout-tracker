@@ -5,7 +5,7 @@ import { setWorkouts } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
-import { liftRecords, type RecordSet } from '../records'
+import { isScoringWorkout, liftRecords, type RecordSet } from '../records'
 import { localDate } from '../dates'
 
 function startOfWeek(d: Date): Date {
@@ -58,6 +58,7 @@ export function HistoryView() {
   const weeks = useMemo(() => {
     const byWeek = new Map<string, number>()
     for (const w of workouts) {
+      if (!isScoringWorkout(w)) continue
       const key = localDate(startOfWeek(new Date(w.startedAt)))
       byWeek.set(key, (byWeek.get(key) ?? 0) + volumeOf(w))
     }
@@ -191,15 +192,19 @@ export function HistoryView() {
                 {w.name ?? 'Workout'} <span class="muted">· {w.date}</span>
               </div>
               <div class="muted small">
-                {w.exercises.length} exercises · {setCount(w)} sets · {durationMin(w)} min ·{' '}
-                {Math.round(volumeOf(w)).toLocaleString()} {settings.units} volume
+                {w.status === 'skipped' ? 'Skipped' : (
+                  <>
+                    {w.exercises.length} exercises · {setCount(w)} sets · {durationMin(w)} min ·{' '}
+                    {Math.round(volumeOf(w)).toLocaleString()} {settings.units} volume
+                  </>
+                )}
               </div>
             </div>
             <span class="chevron">{openId === w.id ? '▾' : '▸'}</span>
           </button>
           {openId === w.id && (
             <div class="workout-detail">
-              {w.exercises.map((ex) => (
+              {w.status !== 'skipped' && w.exercises.map((ex) => (
                 <div key={ex.id} class="detail-ex">
                   <div class="detail-ex-name">{ex.name}</div>
                   <div class="detail-sets">
@@ -212,9 +217,11 @@ export function HistoryView() {
                 </div>
               ))}
               <div class="detail-actions">
-                <button class="btn small ghost" onClick={() => saveAsTemplate(w)}>
-                  Save as template
-                </button>
+                {w.status !== 'skipped' && (
+                  <button class="btn small ghost" onClick={() => saveAsTemplate(w)}>
+                    Save as template
+                  </button>
+                )}
                 <button class="btn small danger" onClick={() => deleteWorkout(w.id)}>
                   Delete
                 </button>

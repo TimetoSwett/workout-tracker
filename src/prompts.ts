@@ -54,7 +54,7 @@ export function durationMin(w: Workout): number {
 export function compileWorkouts(workouts: Workout[], settings: Settings, mesocycles: Mesocycle[] = []): string {
   const lines: string[] = []
   lines.push(`Units: ${settings.units}`)
-  lines.push(`Workouts (${workouts.length}), oldest first.`)
+  lines.push(`Workouts (${workouts.filter(isScoringWorkout).length}), oldest first.`)
   lines.push(
     'Effort metrics: hard-set counts and rep distribution are primary; load trend (top set weight) matters for strength blocks. Do NOT compare raw tonnage (weight x reps summed) across phases — strength blocks run fewer, heavier sets by design and that is not detraining.',
   )
@@ -94,7 +94,7 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
 
   const announced = new Set<string>()
   for (const w of workouts) {
-    const dur = w.endedAt ? ` (${durationMin(w)} min)` : ''
+    const dur = w.status === 'skipped' ? ' — Skipped' : w.endedAt ? ` (${durationMin(w)} min)` : ''
     const meso = w.mesoId ? ` [meso week ${(w.mesoWeek ?? 0) + 1}, day ${(w.mesoDayPosition ?? 0) + 1}]` : ''
     lines.push(`\n## ${w.date} — ${w.name ?? 'Workout'}${dur}${meso}`)
     if (w.mesoId && !announced.has(w.mesoId)) {
@@ -106,7 +106,7 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
         )
       }
     }
-    if (w.activity) {
+    if (isScoringWorkout(w) && w.activity) {
       lines.push(`Activity: ${w.activity.style ? `${w.activity.type} (${w.activity.style})` : w.activity.type}, ${w.activity.durationMin} min — non-lifting session, not captured in set counts`)
     }
     // Hard sets and the rep mix are the coach's primary effort signal, so they count only
