@@ -10,6 +10,7 @@ import { RestTimer } from './RestTimer'
 import { armRestAlert, type AlertOutcome } from '../restAlert'
 import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
+import { dayMarkers } from '../calendar'
 import { exerciseHistory, weightsFilledForward } from '../setEntry'
 
 const PUMP_VALUES = [0, 1, 2]
@@ -354,7 +355,7 @@ export function LogView() {
               <div class="stat-label">workouts logged</div>
             </div>
             <div>
-              <div class="stat-num">{workouts.filter((w) => w.date >= localDateDaysAgo(7)).length}</div>
+              <div class="stat-num">{[...dayMarkers(workouts, { from: localDateDaysAgo(7) }).values()].reduce((n, m) => n + m.done, 0)}</div>
               <div class="stat-label">this week</div>
             </div>
           </div>
