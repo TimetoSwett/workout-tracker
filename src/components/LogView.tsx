@@ -10,6 +10,7 @@ import { RestTimer } from './RestTimer'
 import { armRestAlert, type AlertOutcome } from '../restAlert'
 import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
+import { isScoringWorkout } from '../records'
 import { dayMarkers } from '../calendar'
 import { exerciseHistory, weightsFilledForward } from '../setEntry'
 
@@ -367,7 +368,7 @@ export function LogView() {
         {workouts.length > 0 && (
           <div class="card stat-row">
             <div>
-              <div class="stat-num">{workouts.length}</div>
+              <div class="stat-num">{workouts.filter(isScoringWorkout).length}</div>
               <div class="stat-label">workouts logged</div>
             </div>
             <div>

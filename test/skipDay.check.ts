@@ -60,3 +60,20 @@ assert.equal(setCount(importedSkip), 0)
 const settings = { units: 'lbs', restSeconds: 60, philosophy: 'balanced' } as const
 assert.match(compileWorkouts([legacy, importedSkip], settings), /Workouts \(1\)/)
 assert.equal(compileHistorySummary([legacy, importedSkip], settings), compileHistorySummary([legacy], settings))
+
+const { coachWindow } = require('../src/coachWindow') as typeof import('../src/coachWindow')
+assert.deepEqual(coachWindow([skipped, legacy], 'last'), [legacy])
+assert.deepEqual(coachWindow([skipped, legacy], 'all'), [legacy])
+assert.deepEqual(coachWindow([skipped], 'last'), [])
+assert.deepEqual(coachWindow([skipped], 4, now), [])
+assert.deepEqual(coachWindow([legacy, skipped], 4, now), [])
+assert.deepEqual(coachWindow([legacy, skipped], 4, legacy.startedAt), [legacy])
+
+// Legacy records can lack a stored date: use startedAt, or omit the monthly row.
+const missingDate = { ...legacy, date: undefined } as unknown as Workout
+assert.doesNotThrow(() => compileHistorySummary([missingDate], settings))
+assert.match(compileHistorySummary([missingDate], settings), new RegExp(localDate(new Date(legacy.startedAt)).slice(0, 7)))
+const undated = { ...missingDate, startedAt: undefined } as unknown as Workout
+assert.doesNotThrow(() => compileHistorySummary([undated], settings))
+assert.match(compileHistorySummary([undated], settings), /0 sessions/)
+console.log('PASS skipDay: coach windows exclude skips and history tolerates missing dates')

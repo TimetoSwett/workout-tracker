@@ -279,7 +279,9 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
     // itself. It used to raise the month's session count while contributing no sets,
     // which read to the coach as a month of empty training days.
     if (!isScoringWorkout(w)) continue
-    const key = w.date.slice(0, 7)
+    const date = dateOf(w)
+    if (!date) continue
+    const key = date.slice(0, 7)
     const m = months.get(key) ?? { sessions: 0, sets: 0, reps: [], heavy: 0 }
     m.sessions++
     for (const ex of w.exercises) {

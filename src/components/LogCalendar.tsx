@@ -118,13 +118,13 @@ export function LogCalendar({
           </div>
           <div class="cal-grid">
             {cells.map((cell) => {
-              const count = markers.get(cell.date)?.done ?? 0
+              const { done: count = 0, skipped = 0 } = markers.get(cell.date) ?? {}
               const classes = [
                 'cal-day',
                 cell.inMonth ? '' : 'out',
                 cell.date === today ? 'today' : '',
                 cell.date === selected ? 'selected' : '',
-                count > 0 ? 'has' : '',
+                count > 0 ? 'has' : skipped > 0 ? 'skipped' : '',
               ]
                 .filter(Boolean)
                 .join(' ')
@@ -133,7 +133,7 @@ export function LogCalendar({
                   key={cell.date}
                   type="button"
                   class={classes}
-                  aria-label={`${cell.date}, ${count} workout${count === 1 ? '' : 's'}`}
+                  aria-label={`${cell.date}, ${count} workout${count === 1 ? '' : 's'}${skipped > 0 ? `, ${skipped} skipped` : ''}`}
                   aria-pressed={cell.date === selected}
                   onClick={() => pickDay(cell.date)}
                 >
@@ -217,11 +217,11 @@ export function LogCalendar({
                   <div key={w.id} class="past-session">
                     <div class="workout-title">{w.name ?? w.activity?.type ?? 'Workout'}</div>
                     <div class="muted small">
-                      {clock(w.startedAt)}
+                      {w.status === 'skipped' ? 'Skipped · ' : ''}{clock(w.startedAt)}
                       {w.activity ? ` · ${w.activity.durationMin} min` : ''}
                       {w.exercises.length > 0 ? ` · ${w.exercises.map((ex) => ex.name).join(' · ')}` : ''}
                     </div>
-                    {w.id !== activeId && (
+                    {w.id !== activeId && w.status !== 'skipped' && (
                       <button class="btn small ghost" type="button" onClick={() => setDraft(copyWorkout(w))}>
                         Edit
                       </button>
