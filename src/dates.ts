@@ -28,8 +28,11 @@ export function parseLocalDate(s: string): Date | null {
   const y = Number(m[1])
   const mo = Number(m[2])
   const d = Number(m[3])
-  const date = new Date(y, mo - 1, d)
-  date.setFullYear(y) // years 0–99 would otherwise map to 1900–1999
+  // setFullYear on an epoch Date: `new Date(y, …)` maps years 0–99 to 19xx, which would make
+  // 0000-02-29 (a real leap day) look like 1900-02-29.
+  const date = new Date(0)
+  date.setFullYear(y, mo - 1, d)
+  date.setHours(0, 0, 0, 0)
   return date.getFullYear() === y && date.getMonth() === mo - 1 && date.getDate() === d ? date : null
 }
 
