@@ -119,7 +119,7 @@ export function HistoryView() {
     ])
   }
 
-  if (workouts.length === 0) {
+  if (!workouts.some(isScoringWorkout)) {
     return (
       <div class="view cols">
         <h1>History</h1>
