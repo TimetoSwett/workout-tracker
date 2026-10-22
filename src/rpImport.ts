@@ -20,6 +20,8 @@ interface RpExercise {
   name: string
   muscleGroupId?: number
   sourceDayExerciseId?: number | null
+  /** RP's per-exercise joint pain, 0-3 or null. Mapped to the day's joint soreness rating. */
+  jointPain?: number | null
   sets?: RpSet[]
 }
 
@@ -133,6 +135,13 @@ function mapDay(day: RpDay, mesoId: string, mesoName: string): Workout {
     workload: mg.workload ?? undefined,
     recommendedSets: mg.recommendedSets ?? undefined,
   }))
+  // RP rates joint pain per exercise on 0-3; the workout's joint soreness (0-5) is the
+  // day's worst exercise rescaled: round(max * 5/3) -> 0, 2, 3, 5. All-null stays unrated.
+  // Recovery is deliberately not derived on import.
+  const jointPains = (day.exercises ?? []).map((ex) => ex.jointPain).filter((v): v is number => v != null)
+  const jointSoreness = jointPains.length
+    ? Math.min(5, Math.max(0, Math.round((Math.max(...jointPains) * 5) / 3)))
+    : undefined
   return {
     id: `rp-day-${day.id}`,
     date: localDate(new Date(startedAt)),
@@ -148,6 +157,7 @@ function mapDay(day: RpDay, mesoId: string, mesoName: string): Workout {
     status: mapDayStatus(day.status),
     bodyweight: day.bodyweight ?? undefined,
     muscleFeedback: muscleFeedback.length ? muscleFeedback : undefined,
+    ratings: jointSoreness != null ? { jointSoreness } : undefined,
   }
 }
 
