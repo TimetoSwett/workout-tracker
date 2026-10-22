@@ -1,5 +1,7 @@
 import type { LoggedExercise, LoggedSet, Mesocycle, MesoTemplateExercise, Workout } from './types'
 import { MUSCLE_GROUPS } from './types'
+import { dateOf } from './dates'
+import { isScoringWorkout } from './records'
 
 export function muscleGroupName(id: number, overrides: Record<number, string> | undefined): string {
   return overrides?.[id] ?? MUSCLE_GROUPS.find((g) => g.id === id)?.name ?? `Muscle ${id}`
@@ -32,6 +34,28 @@ export function mesoPosition(meso: Mesocycle, workouts: Workout[]): MesoPosition
   const weekIndex = Math.min(Math.floor(count / daysPerWeek), Math.max(0, meso.weeksPlanned - 1))
   const dayIndex = count % daysPerWeek
   return { weekIndex, dayIndex, isDeload: weekIndex === deloadWeekOf(meso), isFirstWeek: weekIndex === 0 }
+}
+
+/** Records an untrained slot through the normal workout storage and sync path. */
+export function buildSkippedWorkout(
+  meso: Mesocycle,
+  position: MesoPosition,
+  now: number,
+  id: string,
+): Workout {
+  return {
+    id,
+    date: dateOf({ startedAt: now })!,
+    name: meso.days[position.dayIndex]?.label ?? meso.name,
+    status: 'skipped',
+    exercises: [],
+    mesoId: meso.id,
+    mesoWeek: position.weekIndex,
+    mesoDayPosition: position.dayIndex,
+    startedAt: now,
+    endedAt: now,
+    updatedAt: now,
+  }
 }
 
 const WEIGHT_INCREMENT = 5
@@ -79,7 +103,7 @@ function nextTarget(
 export function generateWorkoutExercises(meso: Mesocycle, position: MesoPosition, allWorkouts: Workout[]): LoggedExercise[] {
   const day = meso.days[position.dayIndex]
   if (!day) return []
-  const relevant = allWorkouts.filter((w) => w.mesoId === meso.id && !w.deleted).sort((a, b) => a.startedAt - b.startedAt)
+  const relevant = allWorkouts.filter((w) => w.mesoId === meso.id && isScoringWorkout(w)).sort((a, b) => a.startedAt - b.startedAt)
   return day.exercises.map((tex) => {
     const setCount = Math.max(1, tex.sets)
     const sets: LoggedSet[] = Array.from({ length: setCount }, () => {

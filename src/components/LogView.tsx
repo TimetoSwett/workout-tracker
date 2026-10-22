@@ -3,7 +3,7 @@ import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template
 import { getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
-import { generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
+import { buildSkippedWorkout, generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { LogCalendar } from './LogCalendar'
 import { RestTimer } from './RestTimer'
@@ -210,6 +210,17 @@ export function LogView() {
     saveFinished(trimmed)
   }
 
+  function skipMesoDay() {
+    if (!activeMeso || getState().active) return
+    const pos = mesoPosition(activeMeso, getState().workouts)
+    const day = activeMeso.days[pos.dayIndex]
+    if (!day || !confirm(`Skip ${day.label}? This advances the plan to the next day.`)) return
+    const now = Date.now()
+    upsertWorkout(buildSkippedWorkout(activeMeso, pos, now, uid()))
+    showToast('Day skipped')
+    if (dropboxConfigured(settings)) sync()
+  }
+
   function startMesoWorkout() {
     if (!activeMeso) return
     const pos = mesoPosition(activeMeso, workouts)
@@ -326,6 +337,11 @@ export function LogView() {
                   <button class="btn primary big" onClick={startMesoWorkout}>
                     Start {day?.label ?? 'workout'}
                   </button>
+                  {day && (
+                    <button class="btn ghost" onClick={skipMesoDay}>
+                      Skip day
+                    </button>
+                  )}
                 </>
               )
             })()}
