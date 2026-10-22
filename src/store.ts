@@ -25,11 +25,19 @@ interface HistorySlice {
   mesocycles: Mesocycle[]
 }
 
+const storageErrors = new Map<string, string>()
+
 function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistorySlice } | null {
   const raw = localStorage.getItem(OLD_KEY)
   if (!raw) return null
+  let p: Partial<Stored>
   try {
-    const p = JSON.parse(raw) as Partial<Stored>
+    p = JSON.parse(raw) as Partial<Stored>
+  } catch {
+    return null
+  }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null
+  {
     const activeSlice: ActiveSlice = {
       active: p.active ?? null,
       templates: p.templates ?? [],
@@ -39,12 +47,47 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
       workouts: p.workouts ?? [],
       mesocycles: p.mesocycles ?? [],
     }
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeSlice))
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(historySlice))
-    localStorage.removeItem(OLD_KEY)
-    return { activeSlice, historySlice }
-  } catch {
-    return null
+    // If the split save fails (e.g. storage full), keep the old key so nothing is lost,
+    // run from the parsed data in memory, and surface the error instead of starting empty.
+    // On a retry, a split key that already saved holds newer data than wt.v1: keep it.
+    const existing = <T,>(key: string): T | null => {
+      try {
+        const v = localStorage.getItem(key)
+        return v ? (JSON.parse(v) as T) : null
+      } catch {
+        return null
+      }
+    }
+    const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+    const rawActive = existing<unknown>(ACTIVE_KEY)
+    const rawHistory = existing<unknown>(HISTORY_KEY)
+    // Only a well-formed slice may win over wt.v1; anything else is re-migrated.
+    const savedActive = isObj(rawActive) && isObj(rawActive.settings) && Array.isArray(rawActive.templates) && rawActive.templates.every(isObj) ? (rawActive as unknown as ActiveSlice) : null
+    const savedHistory =
+      isObj(rawHistory) &&
+      Array.isArray(rawHistory.workouts) &&
+      Array.isArray(rawHistory.mesocycles) &&
+      rawHistory.workouts.every(isObj) &&
+      rawHistory.mesocycles.every(isObj)
+        ? (rawHistory as unknown as HistorySlice)
+        : null
+    const a: ActiveSlice = savedActive
+      ? { active: 'active' in savedActive ? (savedActive.active ?? null) : activeSlice.active, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
+      : activeSlice
+    const h: HistorySlice = savedHistory
+      ? { workouts: savedHistory.workouts ?? [], mesocycles: savedHistory.mesocycles ?? [] }
+      : historySlice
+    // Rewrite the active slice if it was missing or lacked `active`, so a recovered legacy workout persists.
+    if (!savedActive || !('active' in savedActive)) trySave(ACTIVE_KEY, a)
+    if (!savedHistory) trySave(HISTORY_KEY, h)
+    if (!storageErrors.has(ACTIVE_KEY) && !storageErrors.has(HISTORY_KEY)) {
+      try {
+        localStorage.removeItem(OLD_KEY)
+      } catch {
+        // Harmless: the split keys are valid, so the next launch keeps them and retries removal.
+      }
+    }
+    return { activeSlice: a, historySlice: h }
   }
 }
 
@@ -81,14 +124,34 @@ function load(): Stored {
 let state: Stored = load()
 const listeners = new Set<() => void>()
 
+/** Set while any localStorage key's latest save has failed (usually the quota). In-memory state is still current. */
+export function getStorageError(): string | null {
+  return storageErrors.get(HISTORY_KEY) ?? storageErrors.values().next().value ?? null
+}
+
+function isQuotaError(e: unknown): boolean {
+  return e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014)
+}
+
+function trySave(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+    storageErrors.delete(key)
+  } catch (e) {
+    storageErrors.set(key, isQuotaError(e)
+      ? 'Browser storage is full, so recent changes are only kept until this tab closes. Sync to Dropbox to keep them.'
+      : `Could not save to browser storage: ${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
 function saveActive() {
   const { active, templates, settings } = state
-  localStorage.setItem(ACTIVE_KEY, JSON.stringify({ active, templates, settings } satisfies ActiveSlice))
+  trySave(ACTIVE_KEY, { active, templates, settings } satisfies ActiveSlice)
 }
 
 function saveHistory() {
   const { workouts, mesocycles } = state
-  localStorage.setItem(HISTORY_KEY, JSON.stringify({ workouts, mesocycles } satisfies HistorySlice))
+  trySave(HISTORY_KEY, { workouts, mesocycles } satisfies HistorySlice)
 }
 
 function emit(changed: { active?: boolean; history?: boolean }) {
