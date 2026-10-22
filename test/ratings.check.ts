@@ -71,6 +71,20 @@ check('skipped workout never prints a rating, even if the record carries one', (
   ok(!/joint soreness/i.test(out), 'skipped workout must not print a joint soreness line')
   ok(!/not rated/i.test(out), 'skipped workout must not read as "not rated"')
 })
+check('skipped workout prints no Muscle feedback line, even if the record carries feedback', () => {
+  const out = compileWorkouts(
+    [
+      baseWorkout({
+        status: 'skipped',
+        exercises: [],
+        muscleFeedback: [{ muscleGroupId: 1, pump: 2, soreness: 1, workload: 3, recovery: 3 }],
+      }),
+    ],
+    settings,
+  )
+  ok(!/Muscle feedback/i.test(out), 'skipped workout must not print a Muscle feedback line')
+  ok(!/Recovery scale/i.test(out), 'skipped workout must not print the recovery legend')
+})
 
 console.log('\nratings: backward compatibility and sync')
 check('pre-ratings record (no ratings key) decodes unchanged', () => {
