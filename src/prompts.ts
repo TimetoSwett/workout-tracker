@@ -158,7 +158,9 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
         .join(' · ')
       lines.push(`Muscle feedback: ${feedback}`)
     }
-    if (w.ratings?.jointSoreness != null) {
+    // Skipped workouts never went through the finish flow, so they are never rated —
+    // and must not read as "not rated" either: no line at all.
+    if (w.status !== 'skipped' && w.ratings?.jointSoreness != null) {
       lines.push(`Joint soreness: ${w.ratings.jointSoreness} / 5 (0 = not sore at all, 5 = very painful)`)
     }
     if (w.notes) lines.push(`Session notes: ${w.notes}`)

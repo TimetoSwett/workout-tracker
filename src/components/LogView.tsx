@@ -244,6 +244,8 @@ export function LogView() {
     showToast(`Template “${name}” saved`)
   }
 
+  // This screen is only reachable from finish() on the active workout. Skipped workouts
+  // (status: 'skipped') are saved directly and never land here, so they never see this card.
   if (feedback && pendingFinish) {
     const groupIds = Object.keys(feedback).map(Number)
     return (
