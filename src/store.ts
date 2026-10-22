@@ -25,11 +25,18 @@ interface HistorySlice {
   mesocycles: Mesocycle[]
 }
 
+const storageErrors = new Map<string, string>()
+
 function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistorySlice } | null {
   const raw = localStorage.getItem(OLD_KEY)
   if (!raw) return null
+  let p: Partial<Stored>
   try {
-    const p = JSON.parse(raw) as Partial<Stored>
+    p = JSON.parse(raw) as Partial<Stored>
+  } catch {
+    return null
+  }
+  {
     const activeSlice: ActiveSlice = {
       active: p.active ?? null,
       templates: p.templates ?? [],
@@ -39,12 +46,12 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
       workouts: p.workouts ?? [],
       mesocycles: p.mesocycles ?? [],
     }
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify(activeSlice))
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(historySlice))
-    localStorage.removeItem(OLD_KEY)
+    // If the split save fails (e.g. storage full), keep the old key so nothing is lost,
+    // run from the parsed data in memory, and surface the error instead of starting empty.
+    trySave(ACTIVE_KEY, activeSlice)
+    trySave(HISTORY_KEY, historySlice)
+    if (!storageErrors.has(ACTIVE_KEY) && !storageErrors.has(HISTORY_KEY)) localStorage.removeItem(OLD_KEY)
     return { activeSlice, historySlice }
-  } catch {
-    return null
   }
 }
 
@@ -80,8 +87,6 @@ function load(): Stored {
 
 let state: Stored = load()
 const listeners = new Set<() => void>()
-
-const storageErrors = new Map<string, string>()
 
 /** Set while any localStorage key's latest save has failed (usually the quota). In-memory state is still current. */
 export function getStorageError(): string | null {
