@@ -129,21 +129,19 @@ export function LogCalendar({
           </div>
           <div class="cal-grid">
             {cells.map((cell) => {
-              const m = markers.get(cell.date)
-              const count = m?.done ?? 0
+              const { done = 0, skipped = 0, planned: plannedCount = 0 } = markers.get(cell.date) ?? {}
               const parts = [
-                count > 0 ? `${count} done` : '',
-                m && m.skipped > 0 ? `${m.skipped} skipped` : '',
-                m && m.planned > 0 ? 'planned' : '',
+                done > 0 ? `${done} done` : '',
+                skipped > 0 ? `${skipped} skipped` : '',
+                plannedCount > 0 ? 'planned' : '',
               ].filter(Boolean)
               const classes = [
                 'cal-day',
                 cell.inMonth ? '' : 'out',
                 cell.date === today ? 'today' : '',
                 cell.date === selected ? 'selected' : '',
-                count > 0 ? 'has' : '',
-                m && m.skipped > 0 ? 'skipped' : '',
-                m && m.planned > 0 ? 'planned' : '',
+                done > 0 ? 'has' : skipped > 0 ? 'skipped' : '',
+                plannedCount > 0 ? 'planned' : '',
               ]
                 .filter(Boolean)
                 .join(' ')
@@ -264,11 +262,11 @@ export function LogCalendar({
                   <div key={w.id} class="past-session">
                     <div class="workout-title">{w.name ?? w.activity?.type ?? 'Workout'}</div>
                     <div class="muted small">
-                      {clock(w.startedAt)}
+                      {w.status === 'skipped' ? 'Skipped · ' : ''}{clock(w.startedAt)}
                       {w.activity ? ` · ${w.activity.durationMin} min` : ''}
                       {w.exercises.length > 0 ? ` · ${w.exercises.map((ex) => ex.name).join(' · ')}` : ''}
                     </div>
-                    {w.id !== activeId && (
+                    {w.id !== activeId && w.status !== 'skipped' && (
                       <button class="btn small ghost" type="button" onClick={() => setDraft(copyWorkout(w))}>
                         Edit
                       </button>
@@ -282,7 +280,7 @@ export function LogCalendar({
             </div>
           )}
           <p class="muted small cal-legend">
-            <span class="cal-key done" aria-hidden="true" /> done · <span class="cal-key" aria-hidden="true">×</span>{' '}
+            <span class="cal-key done" aria-hidden="true" /> done · <span class="cal-key skipped" aria-hidden="true" />{' '}
             skipped · <span class="cal-key planned" aria-hidden="true" /> planned
           </p>
           <p class="muted small">Weights are in {units}. Opening a day does not log anything.</p>

@@ -17,11 +17,12 @@ import {
 import { buildMesoDraft, collectKnownExerciseNames, parseMesoDraftJson } from '../mesoDraft'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
+import { coachWindow, type CoachWindow } from '../coachWindow'
 import { MesoDraftReview } from './MesoDraftReview'
 
 export type CoachIntent = 'plan-meso'
 
-type Win = 'last' | 'all' | number
+type Win = CoachWindow
 const WINDOWS: { key: Win; label: string }[] = [
   { key: 'last', label: 'Last' },
   { key: 2, label: '2w' },
@@ -143,11 +144,7 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
    *  from `active` — `analyze()` starts a new thread and runs in the same tick, before
    *  the activeId state update lands, so reading `active` here sends an empty log. */
   function windowOf(w: Win): Workout[] {
-    const sorted = [...workouts].sort((a, b) => a.startedAt - b.startedAt)
-    if (w === 'all') return sorted
-    if (w === 'last') return sorted.slice(-1)
-    const from = Date.now() - w * 7 * 864e5
-    return sorted.filter((x) => x.startedAt >= from)
+    return coachWindow(workouts, w)
   }
 
   function windowFor(thread: CoachThread): Workout[] {

@@ -1,5 +1,6 @@
 import type { CoachMemory, DailyMetric, LoggedExercise, Mesocycle, Philosophy, Profile, Settings, Workout } from './types'
 import { MUSCLE_GROUPS } from './types'
+import { dateOf } from './dates'
 import { muscleGroupName } from './mesoEngine'
 import { compileMetrics, nutritionBlock } from './nutrition'
 import {
@@ -54,7 +55,7 @@ export function durationMin(w: Workout): number {
 export function compileWorkouts(workouts: Workout[], settings: Settings, mesocycles: Mesocycle[] = []): string {
   const lines: string[] = []
   lines.push(`Units: ${settings.units}`)
-  lines.push(`Workouts (${workouts.length}), oldest first.`)
+  lines.push(`Workouts (${workouts.filter(isScoringWorkout).length}), oldest first.`)
   lines.push(
     'Effort metrics: hard-set counts and rep distribution are primary; load trend (top set weight) matters for strength blocks. Do NOT compare raw tonnage (weight x reps summed) across phases — strength blocks run fewer, heavier sets by design and that is not detraining.',
   )
@@ -94,9 +95,9 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
 
   const announced = new Set<string>()
   for (const w of workouts) {
-    const dur = w.endedAt ? ` (${durationMin(w)} min)` : ''
+    const dur = w.status === 'skipped' ? ' — Skipped' : w.endedAt ? ` (${durationMin(w)} min)` : ''
     const meso = w.mesoId ? ` [meso week ${(w.mesoWeek ?? 0) + 1}, day ${(w.mesoDayPosition ?? 0) + 1}]` : ''
-    lines.push(`\n## ${w.date} — ${w.name ?? 'Workout'}${dur}${meso}`)
+    lines.push(`\n## ${dateOf(w)} — ${w.name ?? 'Workout'}${dur}${meso}`)
     if (w.mesoId && !announced.has(w.mesoId)) {
       announced.add(w.mesoId)
       const m = mesoById.get(w.mesoId)
@@ -106,7 +107,7 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
         )
       }
     }
-    if (w.activity) {
+    if (isScoringWorkout(w) && w.activity) {
       lines.push(`Activity: ${w.activity.style ? `${w.activity.type} (${w.activity.style})` : w.activity.type}, ${w.activity.durationMin} min — non-lifting session, not captured in set counts`)
     }
     // Hard sets and the rep mix are the coach's primary effort signal, so they count only
@@ -278,7 +279,9 @@ export function compileHistorySummary(workouts: Workout[], settings: Settings): 
     // itself. It used to raise the month's session count while contributing no sets,
     // which read to the coach as a month of empty training days.
     if (!isScoringWorkout(w)) continue
-    const key = w.date.slice(0, 7)
+    const date = dateOf(w)
+    if (!date) continue
+    const key = date.slice(0, 7)
     const m = months.get(key) ?? { sessions: 0, sets: 0, reps: [], heavy: 0 }
     m.sessions++
     for (const ex of w.exercises) {
