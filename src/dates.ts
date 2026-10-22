@@ -8,7 +8,7 @@
 export function localDate(d: Date = new Date()): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${m}-${day}`
+  return `${String(d.getFullYear()).padStart(4, '0')}-${m}-${day}`
 }
 
 /** The local calendar day `days` before `from`. Steps by calendar date rather than by
@@ -42,7 +42,8 @@ export function isLocalDate(s: string): boolean {
 export function addDays(date: string, n: number): string {
   const d = parseLocalDate(date)
   if (!d) throw new RangeError(`Invalid local date: ${date}`)
-  return localDate(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n))
+  d.setDate(d.getDate() + n) // d keeps its real year; `new Date(y, …)` would map 0–99 to 19xx
+  return localDate(d)
 }
 
 /** Day of the week for a local date, 0 = Sunday. Throws on an invalid `date`. */

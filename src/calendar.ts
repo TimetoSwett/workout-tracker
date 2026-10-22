@@ -4,7 +4,7 @@ import { dateOf, localDate } from './dates'
 /** Sessions on one local calendar day, earliest first. A deleted row is not a session. */
 export function workoutsOnLocalDate(workouts: Workout[], date: string): Workout[] {
   return workouts
-    .filter((w) => !w.deleted && w.date === date)
+    .filter((w) => !w.deleted && dateOf(w) === date)
     .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
 }
 
