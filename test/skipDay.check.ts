@@ -61,13 +61,30 @@ const settings = { units: 'lbs', restSeconds: 60, philosophy: 'balanced' } as co
 assert.match(compileWorkouts([legacy, importedSkip], settings), /Workouts \(1\)/)
 assert.equal(compileHistorySummary([legacy, importedSkip], settings), compileHistorySummary([legacy], settings))
 
-const { coachWindow } = require('../src/coachWindow') as typeof import('../src/coachWindow')
+const { coachEmptyMessage, coachWindow } = require('../src/coachWindow') as typeof import('../src/coachWindow')
 assert.deepEqual(coachWindow([skipped, legacy], 'last'), [legacy])
 assert.deepEqual(coachWindow([skipped, legacy], 'all'), [legacy])
 assert.deepEqual(coachWindow([skipped], 'last'), [])
 assert.deepEqual(coachWindow([skipped], 4, now), [])
 assert.deepEqual(coachWindow([legacy, skipped], 4, now), [])
 assert.deepEqual(coachWindow([legacy, skipped], 4, legacy.startedAt), [legacy])
+
+const noLoggedWorkouts = 'No workouts logged yet — log a session, or import your RP history from the Plan tab.'
+for (const window of ['last', 'all', 2, 4, 8, 12] as const) {
+  assert.equal(coachEmptyMessage([], window), noLoggedWorkouts)
+  assert.equal(coachEmptyMessage([skipped, importedSkip], window), noLoggedWorkouts)
+}
+assert.equal(
+  coachEmptyMessage([legacy, skipped], 4),
+  'No workouts in the last 4 weeks. Log a session or ask a question directly instead.',
+)
+// History's empty-state guard accepts legacy workouts and keeps skips in mixed lists.
+assert.equal([].some(isScoringWorkout), false)
+assert.equal([skipped, importedSkip].some(isScoringWorkout), false)
+assert.equal([legacy].some(isScoringWorkout), true)
+const mixedHistory = [skipped, legacy, importedSkip]
+assert.equal(mixedHistory.some(isScoringWorkout), true)
+assert.equal(mixedHistory.length, 3)
 
 // Legacy records can lack a stored date: use startedAt, or omit the monthly row.
 const missingDate = { ...legacy, date: undefined } as unknown as Workout

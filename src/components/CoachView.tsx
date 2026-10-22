@@ -17,7 +17,7 @@ import {
 import { buildMesoDraft, collectKnownExerciseNames, parseMesoDraftJson } from '../mesoDraft'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
-import { coachWindow, type CoachWindow } from '../coachWindow'
+import { coachEmptyMessage, coachWindow, type CoachWindow } from '../coachWindow'
 import { MesoDraftReview } from './MesoDraftReview'
 
 export type CoachIntent = 'plan-meso'
@@ -245,11 +245,7 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
       messages: [],
     }
     if (windowFor(thread).length === 0) {
-      setError(
-        workouts.length === 0
-          ? 'No workouts logged yet — log a session, or import your RP history from the Plan tab.'
-          : `No workouts in the last ${thread.weeks} weeks. Log a session or ask a question directly instead.`,
-      )
+      setError(coachEmptyMessage(workouts, win))
       return
     }
     setActiveId(thread.id)
