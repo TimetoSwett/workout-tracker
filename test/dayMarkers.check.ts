@@ -1,7 +1,7 @@
 // dayMarkers: per-day done/skipped counts, keyed by dateOf, ignoring deleted rows.
 import assert from 'node:assert/strict'
 import type { Workout } from '../src/types'
-const { dayMarkers, localDatesWithWorkouts } = require('../src/calendar') as typeof import('../src/calendar')
+const { dayMarkers, localDatesWithWorkouts, workoutsOnLocalDate } = require('../src/calendar') as typeof import('../src/calendar')
 
 process.env.TZ = 'America/Los_Angeles'
 
@@ -38,6 +38,24 @@ function w(over: Partial<Workout>): Workout {
   const m = dayMarkers([late, empty, none])
   assert.deepEqual([...m.keys()].sort(), ['2026-03-08', '2026-03-09'])
   assert.equal(late.date, '2026-02-30') // input untouched
+}
+
+// the day list agrees with the markers, including rows whose date is invalid or missing
+{
+  const ws = [
+    w({}),
+    w({ date: '2026-02-30', startedAt: new Date(2026, 2, 8, 23, 59).getTime() }),
+    w({ date: '', startedAt: new Date(2026, 2, 9, 0, 0).getTime() }),
+    w({ date: undefined as unknown as string, startedAt: new Date(2026, 2, 9, 8).getTime(), status: 'skipped' }),
+    w({ date: '', startedAt: NaN }),
+    w({ deleted: true }),
+  ]
+  const m = dayMarkers(ws)
+  assert.deepEqual([...m.keys()].sort(), ['2026-03-08', '2026-03-09'])
+  for (const [date, marker] of m) {
+    assert.equal(workoutsOnLocalDate(ws, date).length, marker.done + marker.skipped, date)
+  }
+  assert.equal(workoutsOnLocalDate(ws, '2026-03-10').length, 0)
 }
 
 // from/to are inclusive, across a DST week
