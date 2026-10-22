@@ -57,8 +57,13 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
         return null
       }
     }
-    const savedActive = existing<ActiveSlice>(ACTIVE_KEY)
-    const savedHistory = existing<HistorySlice>(HISTORY_KEY)
+    const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+    const rawActive = existing<unknown>(ACTIVE_KEY)
+    const rawHistory = existing<unknown>(HISTORY_KEY)
+    // Only a well-formed slice may win over wt.v1; anything else is re-migrated.
+    const savedActive = isObj(rawActive) && isObj(rawActive.settings) && Array.isArray(rawActive.templates) ? (rawActive as unknown as ActiveSlice) : null
+    const savedHistory =
+      isObj(rawHistory) && Array.isArray(rawHistory.workouts) && Array.isArray(rawHistory.mesocycles) ? (rawHistory as unknown as HistorySlice) : null
     const a: ActiveSlice = savedActive
       ? { active: savedActive.active ?? null, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
       : activeSlice
@@ -67,7 +72,13 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
       : historySlice
     if (!savedActive) trySave(ACTIVE_KEY, a)
     if (!savedHistory) trySave(HISTORY_KEY, h)
-    if (!storageErrors.has(ACTIVE_KEY) && !storageErrors.has(HISTORY_KEY)) localStorage.removeItem(OLD_KEY)
+    if (!storageErrors.has(ACTIVE_KEY) && !storageErrors.has(HISTORY_KEY)) {
+      try {
+        localStorage.removeItem(OLD_KEY)
+      } catch {
+        // Harmless: the split keys are valid, so the next launch keeps them and retries removal.
+      }
+    }
     return { activeSlice: a, historySlice: h }
   }
 }
