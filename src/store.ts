@@ -36,6 +36,7 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
   } catch {
     return null
   }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return null
   {
     const activeSlice: ActiveSlice = {
       active: p.active ?? null,
@@ -63,9 +64,15 @@ function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistoryS
     // Only a well-formed slice may win over wt.v1; anything else is re-migrated.
     const savedActive = isObj(rawActive) && isObj(rawActive.settings) && Array.isArray(rawActive.templates) ? (rawActive as unknown as ActiveSlice) : null
     const savedHistory =
-      isObj(rawHistory) && Array.isArray(rawHistory.workouts) && Array.isArray(rawHistory.mesocycles) ? (rawHistory as unknown as HistorySlice) : null
+      isObj(rawHistory) &&
+      Array.isArray(rawHistory.workouts) &&
+      Array.isArray(rawHistory.mesocycles) &&
+      rawHistory.workouts.every(isObj) &&
+      rawHistory.mesocycles.every(isObj)
+        ? (rawHistory as unknown as HistorySlice)
+        : null
     const a: ActiveSlice = savedActive
-      ? { active: savedActive.active ?? null, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
+      ? { active: savedActive.active ?? activeSlice.active, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
       : activeSlice
     const h: HistorySlice = savedHistory
       ? { workouts: savedHistory.workouts ?? [], mesocycles: savedHistory.mesocycles ?? [] }
