@@ -950,6 +950,13 @@ button {
   border-top: 1px solid var(--border);
 }
 
+.detail-ratings {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 2px;
+}
+
 .detail-ex {
   padding: 8px 0;
   border-bottom: 1px solid var(--border);

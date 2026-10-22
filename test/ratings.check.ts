@@ -10,6 +10,8 @@
  *  Run with `npm run check`. */
 import type { Settings, Workout } from '../src/types'
 import { compileWorkouts } from '../src/prompts'
+import { jointSorenessText, muscleFeedbackLines } from '../src/ratings'
+import { parseRpExport } from '../src/rpImport'
 import { decodeWorkout, encodeWorkout } from '../src/weightWire'
 
 let failures = 0
@@ -121,6 +123,81 @@ check('old muscleFeedback (no recovery) decodes unchanged', () => {
   const w = baseWorkout({ muscleFeedback: [{ muscleGroupId: 6, pump: 1, soreness: 2, workload: 2 }] })
   const back = decodeWorkout(encodeWorkout(w, 'lbs'), 'lbs')
   ok(back.muscleFeedback?.[0]?.recovery === undefined, 'old feedback gained a recovery value')
+})
+
+console.log('\nratings: History display')
+check('History shows joint soreness when set, including a real 0', () => {
+  ok(jointSorenessText(baseWorkout({ ratings: { jointSoreness: 4 } })) === 'Joint soreness: 4 / 5', 'rated 4 not shown')
+  ok(jointSorenessText(baseWorkout({ ratings: { jointSoreness: 0 } })) === 'Joint soreness: 0 / 5', 'rated 0 must show')
+})
+check('History shows nothing for unrated workouts', () => {
+  ok(jointSorenessText(baseWorkout({})) === null, 'unrated workout produced a joint line')
+  ok(muscleFeedbackLines(baseWorkout({}), undefined).length === 0, 'unrated workout produced muscle lines')
+})
+check('History shows nothing at all for skipped workouts', () => {
+  const skipped = baseWorkout({
+    status: 'skipped',
+    exercises: [],
+    ratings: { jointSoreness: 3 },
+    muscleFeedback: [{ muscleGroupId: 1, pump: 2, soreness: 1, recovery: 3 }],
+  })
+  ok(jointSorenessText(skipped) === null, 'skipped workout produced a joint line')
+  ok(muscleFeedbackLines(skipped, undefined).length === 0, 'skipped workout produced muscle lines')
+})
+check('History shows per-muscle pump, soreness, workload and recovery', () => {
+  const lines = muscleFeedbackLines(
+    baseWorkout({
+      muscleFeedback: [
+        { muscleGroupId: 1, pump: 2, soreness: 1, workload: 3, recovery: 0 },
+        { muscleGroupId: 6, soreness: 2 },
+        { muscleGroupId: 2 },
+      ],
+    }),
+    undefined,
+  )
+  ok(lines.length === 2, `expected 2 muscle lines, got ${lines.length}`)
+  ok(lines[0] === 'Chest: pump 2 · soreness 1 · workload 3 · recovery 0/3', `unexpected first line: ${lines[0]}`)
+  ok(lines[1] === 'Quads: soreness 2', `unexpected second line: ${lines[1]}`)
+})
+
+console.log('\nratings: RP import jointPain mapping (hand-made fixture, invented values)')
+check('jointPain 0-3 maps to joint soreness 0, 2, 3, 5 by the day max; all-null stays unrated', () => {
+  const day = (id: number, jointPains: (number | null | undefined)[]) => ({
+    id,
+    week: 0,
+    position: id,
+    status: 'complete',
+    createdAt: '2026-01-05T15:00:00.000Z',
+    updatedAt: '2026-01-05T16:00:00.000Z',
+    exercises: jointPains.map((jointPain, i) => ({
+      id: id * 100 + i,
+      name: `Fixture Lift ${id}-${i}`,
+      ...(jointPain !== undefined ? { jointPain } : {}),
+      sets: [],
+    })),
+    muscleGroups: [{ muscleGroupId: 1, pump: 2, soreness: 1, workload: 2 }],
+  })
+  const fixture = JSON.stringify([
+    {
+      id: 9001,
+      name: 'Fixture Meso',
+      unit: 'lbs',
+      createdAt: '2026-01-05T00:00:00.000Z',
+      updatedAt: '2026-01-05T16:00:00.000Z',
+      weeks: [{ days: [day(101, [1, 3, null]), day(102, [1, null]), day(103, [2, 0]), day(104, [0]), day(105, [null, undefined])] }],
+    },
+  ])
+  const { workouts } = parseRpExport(fixture)
+  const byId = new Map(workouts.map((w) => [w.id, w]))
+  ok(byId.get('rp-day-101')?.ratings?.jointSoreness === 5, `max 3 must map to 5, got ${byId.get('rp-day-101')?.ratings?.jointSoreness}`)
+  ok(byId.get('rp-day-102')?.ratings?.jointSoreness === 2, `max 1 must map to 2, got ${byId.get('rp-day-102')?.ratings?.jointSoreness}`)
+  ok(byId.get('rp-day-103')?.ratings?.jointSoreness === 3, `max 2 must map to 3, got ${byId.get('rp-day-103')?.ratings?.jointSoreness}`)
+  ok(byId.get('rp-day-104')?.ratings?.jointSoreness === 0, 'max 0 must map to a real 0 rating')
+  ok(byId.get('rp-day-105')?.ratings === undefined, 'all-null jointPain must leave ratings unset')
+  ok(
+    byId.get('rp-day-101')?.muscleFeedback?.[0]?.recovery === undefined,
+    'recovery must stay unset on import',
+  )
 })
 
 console.log(`\n${checks - failures}/${checks} checks passed`)
