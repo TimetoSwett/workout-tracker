@@ -130,9 +130,10 @@ const dates = (s: { date: string }[]) => s.map((p) => p.date)
 
 // dayMarkers hook
 {
-  const planned = plannedSessions(meso(), [], { today: '2026-10-19' })
-  const m = dayMarkers([logged()], { planned, to: '2026-10-22' })
-  assert.deepEqual(m.get('2026-10-19'), { done: 1, skipped: 0, planned: 1 })
+  const workouts = [logged()]
+  const planned = plannedSessions(meso(), workouts, { today: '2026-10-19' })
+  const m = dayMarkers(workouts, { planned, to: '2026-10-22' })
+  assert.deepEqual(m.get('2026-10-19'), { done: 1, skipped: 0, planned: 0 })
   assert.deepEqual(m.get('2026-10-22'), { done: 0, skipped: 0, planned: 1 })
   assert.equal(m.has('2026-10-26'), false)
 }
