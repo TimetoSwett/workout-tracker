@@ -21,7 +21,13 @@ export interface MuscleFeedback {
   pump?: number // 0-2
   soreness?: number // -1 to 3
   workload?: number // 0-3
+  recovery?: number // 0-3: 0 = not recovered since last session, 3 = fully recovered
   recommendedSets?: number // imported/historical only, display-only
+}
+
+/** Post-workout ratings for the whole session (per-muscle ratings live in MuscleFeedback). */
+export interface WorkoutRatings {
+  jointSoreness?: number // 0-5: 0 = not sore at all, 5 = very painful
 }
 
 export interface Workout {
@@ -40,6 +46,7 @@ export interface Workout {
   status?: 'complete' | 'partial' | 'skipped'
   bodyweight?: number
   muscleFeedback?: MuscleFeedback[]
+  ratings?: WorkoutRatings
   activity?: {
     type: string
     /** Discipline within a type, e.g. Bouldering / Top rope for Climbing. */

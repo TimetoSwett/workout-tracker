@@ -5,6 +5,7 @@ import { getStorageError, setWorkouts } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
+import { jointSorenessText, muscleFeedbackLines } from '../ratings'
 import { isScoringWorkout, liftRecords, type RecordSet } from '../records'
 import { dateOf, localDate } from '../dates'
 
@@ -43,6 +44,24 @@ function PrFigure({
         {set.weight}×{set.reps} · {set.date}
       </span>
     </span>
+  )
+}
+
+/** Post-workout ratings in the expanded workout card: joint soreness and per-muscle
+ *  feedback. Renders nothing for unrated workouts, and never anything for skipped ones. */
+function RatingLines({ w, overrides }: { w: Workout; overrides: Record<number, string> | undefined }) {
+  const joint = jointSorenessText(w)
+  const muscles = muscleFeedbackLines(w, overrides)
+  if (!joint && muscles.length === 0) return null
+  return (
+    <div class="detail-ratings">
+      {joint && <div class="muted small">{joint}</div>}
+      {muscles.map((line) => (
+        <div key={line} class="muted small">
+          {line}
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -217,6 +236,7 @@ export function HistoryView() {
                   </div>
                 </div>
               ))}
+              <RatingLines w={w} overrides={settings.muscleGroupNames} />
               <div class="detail-actions">
                 {w.status !== 'skipped' && (
                   <button class="btn small ghost" onClick={() => saveAsTemplate(w)}>
