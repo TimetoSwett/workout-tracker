@@ -11,14 +11,25 @@ export function workoutsOnLocalDate(workouts: Workout[], date: string): Workout[
 export interface DayMarker {
   done: number
   skipped: number
-  /** Placeholder until planned days are derived; always 0. */
+  /** Planned sessions on the day; 0 unless `opts.planned` is given. */
   planned: number
 }
 
 /** Per-day session counts keyed by local date. Deleted rows are ignored, and a skipped
- *  session counts as skipped, not done. `from`/`to` (inclusive) limit the days kept. */
-export function dayMarkers(workouts: Workout[], opts: { from?: string; to?: string } = {}): Map<string, DayMarker> {
+ *  session counts as skipped, not done. `from`/`to` (inclusive) limit the days kept.
+ *  `planned` (e.g. from `plannedSessions`) adds to each day's `planned` count. */
+export function dayMarkers(
+  workouts: Workout[],
+  opts: { from?: string; to?: string; planned?: readonly { date: string }[] } = {},
+): Map<string, DayMarker> {
   const markers = new Map<string, DayMarker>()
+  for (const p of opts.planned ?? []) {
+    if (opts.from !== undefined && p.date < opts.from) continue
+    if (opts.to !== undefined && p.date > opts.to) continue
+    let m = markers.get(p.date)
+    if (!m) markers.set(p.date, (m = { done: 0, skipped: 0, planned: 0 }))
+    m.planned++
+  }
   for (const w of workouts) {
     if (w.deleted) continue
     const date = dateOf(w)

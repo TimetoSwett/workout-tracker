@@ -235,6 +235,30 @@ async function main() {
     eq(d.metricsStore.getMetrics().length, 2, 'both metrics survive')
   })
 
+  console.log('\nplan schedule fields')
+  await check('startDate and trainingWeekdays round-trip through merge, and old plans still load', async () => {
+    cloud = {}
+    const base = {
+      id: 'm1', name: 'Plan', unit: 'lbs', weeksPlanned: 4, days: [], priorities: [],
+      status: 'active', createdAt: 1, updatedAt: 1,
+    } as const
+    const scheduled = { ...base, startDate: '2026-10-19', trainingWeekdays: [1, 4] }
+    const a = await device('lbs')
+    a.store.setHistory([], [scheduled, { ...base, id: 'old' }] as never)
+    eq(await a.sync(), null, 'sender sync succeeded')
+    const b = await device('lbs')
+    eq(await b.sync(), null, 'receiver sync succeeded')
+    const got = b.store.getState().mesocycles
+    eq(got.find((m) => m.id === 'm1'), scheduled, 'scheduled plan intact')
+    eq(got.find((m) => m.id === 'old'), { ...base, id: 'old' }, 'old plan untouched')
+    // a later edit on b (newer updatedAt) wins on a, fields and all
+    const edited = { ...scheduled, startDate: '2026-11-02', trainingWeekdays: [0, 3, 5], updatedAt: 2 }
+    b.store.setHistory([], [edited, { ...base, id: 'old' }] as never)
+    eq(await b.sync(), null, 'edit sync succeeded')
+    eq(await a.sync(), null, 'sender pulls the edit')
+    eq(a.store.getState().mesocycles.find((m) => m.id === 'm1'), edited, 'edit round-tripped')
+  })
+
   console.log(`\n${checks - failures}/${checks} checks passed`)
   if (failures) process.exit(1)
 }
