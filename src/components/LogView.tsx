@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout } from '../types'
+import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout, WorkoutRatings } from '../types'
 import { getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
@@ -15,6 +15,7 @@ import { exerciseHistory, weightsFilledForward } from '../setEntry'
 const PUMP_VALUES = [0, 1, 2]
 const SORENESS_VALUES = [-1, 0, 1, 2, 3]
 const WORKLOAD_VALUES = [0, 1, 2, 3]
+const JOINT_VALUES = [0, 1, 2, 3, 4, 5]
 
 type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number }>
 
@@ -37,6 +38,7 @@ export function LogView() {
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
   const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
+  const [jointSoreness, setJointSoreness] = useState<number | undefined>(undefined)
 
   const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported) ?? null
 
@@ -173,13 +175,14 @@ export function LogView() {
     }))
   }
 
-  function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[]) {
-    const finished: Workout = { ...base, endedAt: Date.now(), updatedAt: Date.now(), muscleFeedback }
+  function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[], ratings?: WorkoutRatings) {
+    const finished: Workout = { ...base, endedAt: Date.now(), updatedAt: Date.now(), muscleFeedback, ratings }
     upsertWorkout(finished)
     setActive(null)
     setConfirmDiscard(false)
     setPendingFinish(null)
     setFeedback(null)
+    setJointSoreness(undefined)
     showToast('Workout saved ✓')
     if (dropboxConfigured(settings)) sync()
   }
@@ -206,7 +209,9 @@ export function LogView() {
         return
       }
     }
-    saveFinished(trimmed)
+    // No muscle groups to rate: still stop at the finish screen for the joint-soreness rating.
+    setPendingFinish(trimmed)
+    setFeedback({})
   }
 
   function startMesoWorkout() {
@@ -244,6 +249,23 @@ export function LogView() {
     return (
       <div class="view cols">
         <h1>How'd it feel?</h1>
+        <div class="card">
+          <h3>Joint soreness</h3>
+          <div class="setting-row">
+            <span class="muted small">0 = not sore at all · 5 = very painful</span>
+            <div class="seg">
+              {JOINT_VALUES.map((v) => (
+                <button
+                  key={v}
+                  class={jointSoreness === v ? 'active' : ''}
+                  onClick={() => setJointSoreness(v)}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
         {groupIds.map((id) => (
           <div key={id} class="card">
             <h3>{muscleGroupName(id, settings.muscleGroupNames)}</h3>
@@ -294,7 +316,13 @@ export function LogView() {
         <div class="btn-row">
           <button
             class="btn primary wide"
-            onClick={() => saveFinished(pendingFinish, groupIds.map((id) => ({ muscleGroupId: id, ...feedback[id] })))}
+            onClick={() =>
+              saveFinished(
+                pendingFinish,
+                groupIds.length ? groupIds.map((id) => ({ muscleGroupId: id, ...feedback[id] })) : undefined,
+                jointSoreness != null ? { jointSoreness } : undefined,
+              )
+            }
           >
             Save workout
           </button>
