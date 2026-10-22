@@ -7,6 +7,7 @@
  *
  *  Each "device" is a fresh import of the store modules over its own localStorage, with
  *  `dropbox.ts` replaced by an in-memory folder both devices share. Run with `npm run check`. */
+import { IDBFactory } from 'fake-indexeddb'
 import type { DailyMetric, Workout } from '../src/types'
 import type { Units } from '../src/units'
 
@@ -75,7 +76,14 @@ async function device(units: Units, storage: Record<string, string> = {}) {
     },
   }
 
+  // History lives in IndexedDB: each phone gets one factory per storage object, so a relaunch keeps its history.
+  const idbs = ((globalThis as any).__idbs ??= new WeakMap<object, IDBFactory>()) as WeakMap<object, IDBFactory>
+  if (!idbs.has(storage)) idbs.set(storage, new IDBFactory())
+  ;(globalThis as any).indexedDB = idbs.get(storage)
+  delete require.cache[require.resolve('../src/historyDb')]
+
   const store = await import('../src/store')
+  await store.initStore()
   const metricsStore = await import('../src/metricsStore')
   const { sync } = await import('../src/sync')
   const { syncMetrics } = await import('../src/metricsSync')

@@ -1,26 +1,77 @@
-// #49 review: migration fails (storage full), a later edit saves to the split key,
-// then a reload retries migration. The retry must not overwrite the newer edit.
+// Migration fails, a later edit saves, then a reload retries. The retry must not overwrite the
+// newer edit. Also covers a failed read-back verify and an unavailable IndexedDB.
 import assert from 'node:assert/strict'
+import { fakeWorkout, install, loadStore, makeEnv, readIdb } from './idbEnv'
 
-const mem = new Map<string, string>()
-const oldW = { id: 'fake-old', date: '2025-12-01', startedAt: 1764590000000, exercises: [] }
-const newW = { id: 'fake-new', date: '2025-12-02', startedAt: 1764680000000, exercises: [] }
-mem.set('wt.v1', JSON.stringify({ workouts: [oldW], mesocycles: [] }))
-let full = true
-;(globalThis as any).localStorage = {
-  getItem: (k: string) => mem.get(k) ?? null,
-  setItem: (k: string, v: string) => { if (full) throw new DOMException('full', 'QuotaExceededError'); mem.set(k, v) },
-  removeItem: (k: string) => void mem.delete(k),
+async function main() {
+  const oldW = fakeWorkout(1)
+  const newW = fakeWorkout(2)
+
+  // First launch: IndexedDB writes fail. Second launch: it works and an edit is saved. Third: edit survives.
+  {
+    const env = makeEnv({ 'wt.v1': JSON.stringify({ workouts: [oldW], mesocycles: [] }) })
+    install(env)
+    let { store, db } = loadStore()
+    const realSet = db.set
+    ;(db as any).set = async () => {
+      throw new Error('idb broken')
+    }
+    await store.initStore()
+    assert.ok(env.mem.has('wt.v1'))
+    ;(db as any).set = realSet
+    store.setWorkouts([oldW, newW])
+    await store.flushHistory()
+    assert.equal(store.getStorageError(), null, 'a later successful save clears the error')
+
+    install(env)
+    ;({ store } = loadStore())
+    await store.initStore()
+    assert.deepEqual(store.getState().workouts.map((w) => w.id), [oldW.id, newW.id], 'edit survives the retried migration')
+    assert.ok(!env.mem.has('wt.v1'), 'old key is removed once history is in IndexedDB')
+  }
+
+  // Failed verify: read-back differs. localStorage stays, the bad record is dropped, and the next launch migrates cleanly.
+  {
+    const env = makeEnv({ 'wt.history.v1': JSON.stringify({ workouts: [oldW, newW], mesocycles: [] }) })
+    install(env)
+    let { store, db } = loadStore()
+    const realGet = db.get
+    ;(db as any).get = async (k: string) => {
+      const v: any = await realGet(k)
+      return v && { ...v, workouts: v.workouts.slice(1) }
+    }
+    await store.initStore()
+    assert.match(store.getStorageError() ?? '', /Could not verify/)
+    assert.equal(store.getState().workouts.length, 2, 'runs from memory with full history')
+    assert.ok(env.mem.has('wt.history.v1'), 'localStorage copy kept after failed verify')
+    assert.equal(await realGet(db.HISTORY_RECORD), undefined, 'unverified record is removed')
+
+    install(env)
+    ;({ store, db } = loadStore())
+    await store.initStore()
+    assert.equal(store.getStorageError(), null)
+    assert.equal(store.getState().workouts.length, 2)
+    assert.ok(!env.mem.has('wt.history.v1'), 'retry migrates and removes the key')
+    assert.equal((await readIdb(db)).workouts.length, 2)
+  }
+
+  // IndexedDB missing entirely: history still loads from localStorage and the error is shown.
+  {
+    const env = makeEnv({ 'wt.history.v1': JSON.stringify({ workouts: [oldW], mesocycles: [] }) })
+    install(env)
+    ;(globalThis as any).indexedDB = undefined
+    const { store } = loadStore()
+    await store.initStore()
+    assert.equal(store.getState().workouts.length, 1)
+    assert.ok(env.mem.has('wt.history.v1'))
+    assert.ok(store.getStorageError())
+    store.setWorkouts([oldW, newW])
+    await store.flushHistory()
+    assert.ok(store.getStorageError(), 'failed writes keep reporting')
+  }
+  console.log('storageMigrationRetry: checks passed')
 }
-
-const path = require.resolve('../src/store')
-let store = require(path) as typeof import('../src/store')
-assert.ok(mem.has('wt.v1'))
-full = false
-store.setWorkouts([oldW, newW] as any)
-
-delete require.cache[path]
-store = require(path) as typeof import('../src/store')
-assert.deepEqual(store.getState().workouts.map((w) => w.id), ['fake-old', 'fake-new'], 'edit survives the retried migration')
-assert.ok(!mem.has('wt.v1'), 'old key is removed once both split keys exist')
-console.log('storageMigrationRetry: checks passed')
+main().catch((e) => {
+  console.error(e)
+  process.exit(1)
+})

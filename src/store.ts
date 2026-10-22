@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
+import * as historyDb from './historyDb'
 import type { ActiveWorkout, Mesocycle, Settings, Template, Workout } from './types'
 
 export interface Stored {
@@ -12,6 +13,7 @@ export interface Stored {
 const OLD_KEY = 'wt.v1'
 const ACTIVE_KEY = 'wt.active.v1'
 const HISTORY_KEY = 'wt.history.v1'
+const HISTORY_SCHEMA = 1
 const DEFAULT_SETTINGS: Settings = { units: 'lbs', restSeconds: 90, philosophy: 'balanced' }
 
 interface ActiveSlice {
@@ -27,104 +29,86 @@ interface HistorySlice {
 
 const storageErrors = new Map<string, string>()
 
-function migrateFromOldKey(): { activeSlice: ActiveSlice; historySlice: HistorySlice } | null {
-  const raw = localStorage.getItem(OLD_KEY)
-  if (!raw) return null
-  let p: Partial<Stored>
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+function isHistorySlice(v: unknown): v is HistorySlice {
+  return isObj(v) && Array.isArray(v.workouts) && Array.isArray(v.mesocycles) && v.workouts.every(isObj) && v.mesocycles.every(isObj)
+}
+
+function lsRemove(key: string) {
   try {
-    p = JSON.parse(raw) as Partial<Stored>
+    localStorage.removeItem(key)
+  } catch {
+    // Harmless: the data is safe in IndexedDB, so the next launch retries the removal.
+  }
+}
+
+function lsParse(key: string): unknown {
+  try {
+    const v = localStorage.getItem(key)
+    return v ? JSON.parse(v) : null
   } catch {
     return null
   }
-  if (!p || typeof p !== 'object' || Array.isArray(p)) return null
-  {
-    const activeSlice: ActiveSlice = {
-      active: p.active ?? null,
-      templates: p.templates ?? [],
-      settings: { ...DEFAULT_SETTINGS, ...p.settings },
+}
+
+interface ActiveBoot {
+  activeSlice: ActiveSlice
+  /** History held by the legacy `wt.v1` key, if that key parsed. */
+  legacyHistory: HistorySlice | null
+  /** `wt.v1` parsed and its active data is saved under the split key, so the key may go once history is safe. */
+  legacyRemovable: boolean
+}
+
+/** Synchronous part of boot: the active slice, plus the active half of the `wt.v1` split. History is loaded by `initStore`. */
+function bootActive(): ActiveBoot {
+  const legacy = lsParse(OLD_KEY)
+  const rawActive = lsParse(ACTIVE_KEY)
+  // Only a well-formed slice may win over wt.v1; anything else is re-migrated.
+  const savedActive =
+    isObj(rawActive) && isObj(rawActive.settings) && Array.isArray(rawActive.templates) && rawActive.templates.every(isObj)
+      ? (rawActive as unknown as ActiveSlice)
+      : null
+  const fromSaved = (s: ActiveSlice): ActiveSlice => ({
+    active: s.active ?? null,
+    templates: s.templates ?? [],
+    settings: { ...DEFAULT_SETTINGS, ...s.settings },
+  })
+  if (!isObj(legacy)) {
+    const p = (isObj(rawActive) ? rawActive : {}) as Partial<ActiveSlice>
+    return {
+      activeSlice: { active: p.active ?? null, templates: p.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...p.settings } },
+      legacyHistory: null,
+      legacyRemovable: false,
     }
-    const historySlice: HistorySlice = {
-      workouts: p.workouts ?? [],
-      mesocycles: p.mesocycles ?? [],
-    }
-    // If the split save fails (e.g. storage full), keep the old key so nothing is lost,
-    // run from the parsed data in memory, and surface the error instead of starting empty.
-    // On a retry, a split key that already saved holds newer data than wt.v1: keep it.
-    const existing = <T,>(key: string): T | null => {
-      try {
-        const v = localStorage.getItem(key)
-        return v ? (JSON.parse(v) as T) : null
-      } catch {
-        return null
-      }
-    }
-    const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
-    const rawActive = existing<unknown>(ACTIVE_KEY)
-    const rawHistory = existing<unknown>(HISTORY_KEY)
-    // Only a well-formed slice may win over wt.v1; anything else is re-migrated.
-    const savedActive = isObj(rawActive) && isObj(rawActive.settings) && Array.isArray(rawActive.templates) && rawActive.templates.every(isObj) ? (rawActive as unknown as ActiveSlice) : null
-    const savedHistory =
-      isObj(rawHistory) &&
-      Array.isArray(rawHistory.workouts) &&
-      Array.isArray(rawHistory.mesocycles) &&
-      rawHistory.workouts.every(isObj) &&
-      rawHistory.mesocycles.every(isObj)
-        ? (rawHistory as unknown as HistorySlice)
-        : null
-    const a: ActiveSlice = savedActive
-      ? { active: 'active' in savedActive ? (savedActive.active ?? null) : activeSlice.active, templates: savedActive.templates ?? [], settings: { ...DEFAULT_SETTINGS, ...savedActive.settings } }
-      : activeSlice
-    const h: HistorySlice = savedHistory
-      ? { workouts: savedHistory.workouts ?? [], mesocycles: savedHistory.mesocycles ?? [] }
-      : historySlice
-    // Rewrite the active slice if it was missing or lacked `active`, so a recovered legacy workout persists.
-    if (!savedActive || !('active' in savedActive)) trySave(ACTIVE_KEY, a)
-    if (!savedHistory) trySave(HISTORY_KEY, h)
-    if (!storageErrors.has(ACTIVE_KEY) && !storageErrors.has(HISTORY_KEY)) {
-      try {
-        localStorage.removeItem(OLD_KEY)
-      } catch {
-        // Harmless: the split keys are valid, so the next launch keeps them and retries removal.
-      }
-    }
-    return { activeSlice: a, historySlice: h }
+  }
+  const p = legacy as Partial<Stored>
+  const fromLegacy: ActiveSlice = {
+    active: p.active ?? null,
+    templates: p.templates ?? [],
+    settings: { ...DEFAULT_SETTINGS, ...p.settings },
+  }
+  // An already-saved split slice holds newer data than wt.v1 (a failed or retried migration): keep it.
+  const a: ActiveSlice = savedActive
+    ? { ...fromSaved(savedActive), active: 'active' in savedActive ? (savedActive.active ?? null) : fromLegacy.active }
+    : fromLegacy
+  // Rewrite the active slice if it was missing or lacked `active`, so a recovered legacy workout persists.
+  if (!savedActive || !('active' in savedActive)) trySave(ACTIVE_KEY, a)
+  return {
+    activeSlice: a,
+    legacyHistory: {
+      workouts: Array.isArray(p.workouts) ? (p.workouts.filter(isObj) as unknown as Workout[]) : [],
+      mesocycles: Array.isArray(p.mesocycles) ? (p.mesocycles.filter(isObj) as unknown as Mesocycle[]) : [],
+    },
+    legacyRemovable: !storageErrors.has(ACTIVE_KEY),
   }
 }
 
-function load(): Stored {
-  const migrated = migrateFromOldKey()
-  if (migrated) {
-    return { ...migrated.activeSlice, ...migrated.historySlice }
-  }
-  let activeSlice: ActiveSlice = { active: null, templates: [], settings: DEFAULT_SETTINGS }
-  let historySlice: HistorySlice = { workouts: [], mesocycles: [] }
-  try {
-    const raw = localStorage.getItem(ACTIVE_KEY)
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<ActiveSlice>
-      activeSlice = {
-        active: p.active ?? null,
-        templates: p.templates ?? [],
-        settings: { ...DEFAULT_SETTINGS, ...p.settings },
-      }
-    }
-  } catch {
-  }
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY)
-    if (raw) {
-      const p = JSON.parse(raw) as Partial<HistorySlice>
-      historySlice = { workouts: p.workouts ?? [], mesocycles: p.mesocycles ?? [] }
-    }
-  } catch {
-  }
-  return { ...activeSlice, ...historySlice }
-}
-
-let state: Stored = load()
+const boot = bootActive()
+let state: Stored = { ...boot.activeSlice, workouts: [], mesocycles: [] }
 const listeners = new Set<() => void>()
 
-/** Set while any localStorage key's latest save has failed (usually the quota). In-memory state is still current. */
+/** Set while any key's latest save has failed (usually the quota). In-memory state is still current. */
 export function getStorageError(): string | null {
   return storageErrors.get(HISTORY_KEY) ?? storageErrors.values().next().value ?? null
 }
@@ -133,14 +117,18 @@ function isQuotaError(e: unknown): boolean {
   return e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014)
 }
 
+function describeSaveError(e: unknown): string {
+  return isQuotaError(e)
+    ? 'Browser storage is full, so recent changes are only kept until this tab closes. Sync to Dropbox to keep them.'
+    : `Could not save to browser storage: ${e instanceof Error ? e.message : String(e)}`
+}
+
 function trySave(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value))
     storageErrors.delete(key)
   } catch (e) {
-    storageErrors.set(key, isQuotaError(e)
-      ? 'Browser storage is full, so recent changes are only kept until this tab closes. Sync to Dropbox to keep them.'
-      : `Could not save to browser storage: ${e instanceof Error ? e.message : String(e)}`)
+    storageErrors.set(key, describeSaveError(e))
   }
 }
 
@@ -149,15 +137,125 @@ function saveActive() {
   trySave(ACTIVE_KEY, { active, templates, settings } satisfies ActiveSlice)
 }
 
+function notify() {
+  for (const l of listeners) l()
+}
+
+// History writes: the latest snapshot is queued and written by one loop, so rapid edits coalesce
+// into a single IndexedDB write instead of racing each other.
+let historyReady = false
+let queued: HistorySlice | null = null
+let pumping: Promise<void> | null = null
+
+function pump(): Promise<void> {
+  pumping ??= (async () => {
+    try {
+      while (queued) {
+        const slice = queued
+        queued = null
+        const before = storageErrors.get(HISTORY_KEY)
+        try {
+          await historyDb.set(historyDb.HISTORY_RECORD, { schemaVersion: HISTORY_SCHEMA, ...slice })
+          storageErrors.delete(HISTORY_KEY)
+        } catch (e) {
+          storageErrors.set(HISTORY_KEY, describeSaveError(e))
+        }
+        if (storageErrors.get(HISTORY_KEY) !== before) notify()
+      }
+    } finally {
+      pumping = null
+    }
+  })()
+  return pumping
+}
+
 function saveHistory() {
+  // Before initStore() finishes, the loaded history is not in memory yet; writing now would clobber it.
+  if (!historyReady) return
   const { workouts, mesocycles } = state
-  trySave(HISTORY_KEY, { workouts, mesocycles } satisfies HistorySlice)
+  queued = { workouts, mesocycles }
+  void pump()
+}
+
+/** Resolves once every history change made so far has been written (or has failed and been reported). */
+export function flushHistory(): Promise<void> {
+  return pump()
+}
+
+function fingerprint(h: HistorySlice): string {
+  const sum = (xs: { updatedAt?: number }[]) => xs.reduce((n, x) => n + (Number(x.updatedAt) || 0), 0)
+  return JSON.stringify([h.workouts.map((w) => w.id), h.mesocycles.map((m) => m.id), sum(h.workouts), sum(h.mesocycles)])
+}
+
+/** Writes `h` to IndexedDB, reads it back and compares counts, ids and updatedAt. Returns an error message on failure. */
+async function migrateToIdb(h: HistorySlice): Promise<string | null> {
+  try {
+    await historyDb.set(historyDb.HISTORY_RECORD, { schemaVersion: HISTORY_SCHEMA, ...h })
+    const back = await historyDb.get(historyDb.HISTORY_RECORD)
+    if (!isHistorySlice(back) || fingerprint(back) !== fingerprint(h)) {
+      // A record that reads back wrong must not win on the next launch over the intact localStorage copy.
+      await historyDb.del(historyDb.HISTORY_RECORD).catch(() => undefined)
+      return 'Could not verify history after moving it to browser storage; it stays in the old location.'
+    }
+    return null
+  } catch (e) {
+    return describeSaveError(e)
+  }
+}
+
+let initPromise: Promise<void> | null = null
+
+/** Loads history from IndexedDB, migrating it from localStorage first if needed. Await before reading history or syncing. Never rejects. */
+export function initStore(): Promise<void> {
+  initPromise ??= loadHistory().catch((e) => {
+    storageErrors.set(HISTORY_KEY, describeSaveError(e))
+  }).finally(() => {
+    historyReady = true
+  })
+  return initPromise
+}
+
+async function loadHistory(): Promise<void> {
+  let fromIdb: HistorySlice | null = null
+  try {
+    const rec = await historyDb.get(historyDb.HISTORY_RECORD)
+    if (isHistorySlice(rec)) fromIdb = rec
+  } catch (e) {
+    storageErrors.set(HISTORY_KEY, describeSaveError(e))
+  }
+  const lsRaw = lsParse(HISTORY_KEY)
+  const fromLs = isHistorySlice(lsRaw) ? lsRaw : null
+
+  let safe = false
+  let history: HistorySlice | null = fromIdb
+  if (fromIdb) {
+    safe = true
+    storageErrors.delete(HISTORY_KEY)
+  } else {
+    // Precedence: valid IndexedDB record, then wt.history.v1, then wt.v1.
+    history = fromLs ?? boot.legacyHistory
+    if (history) {
+      const err = await migrateToIdb(history)
+      if (err) storageErrors.set(HISTORY_KEY, err)
+      else {
+        safe = true
+        storageErrors.delete(HISTORY_KEY)
+      }
+    }
+  }
+  if (history) state = { ...state, workouts: history.workouts, mesocycles: history.mesocycles }
+  // Remove the old copies only once history is verified in IndexedDB; otherwise keep them and run from memory.
+  if (safe) {
+    lsRemove(HISTORY_KEY)
+    if (boot.legacyRemovable) lsRemove(OLD_KEY)
+  }
+  notify()
 }
 
 function emit(changed: { active?: boolean; history?: boolean }) {
   if (changed.active) saveActive()
   if (changed.history) saveHistory()
-  for (const l of listeners) l()
+  notify()
 }
 
 export function subscribe(fn: () => void) {
@@ -260,11 +358,12 @@ export function setHistory(workouts: Workout[], mesocycles: Mesocycle[]) {
   emit({ history: true })
 }
 
-/** Removes all storage keys this module owns, including the legacy pre-split key. */
-export function clearHistory() {
-  localStorage.removeItem(OLD_KEY)
-  localStorage.removeItem(ACTIVE_KEY)
-  localStorage.removeItem(HISTORY_KEY)
+/** Removes everything this module stores, including the IndexedDB history and the legacy pre-split keys. */
+export async function clearHistory() {
+  queued = null
+  await pumping
+  for (const key of [OLD_KEY, ACTIVE_KEY, HISTORY_KEY]) lsRemove(key)
+  await historyDb.clear()
 }
 
 export function uid(): string {

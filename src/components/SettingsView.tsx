@@ -585,9 +585,9 @@ export function SettingsView() {
         )}
         <button
           class="btn danger wide"
-          onClick={() => {
+          onClick={async () => {
             if (confirm('Clear ALL local data? Cloud copy (if any) is kept.')) {
-              clearHistory()
+              await clearHistory().catch(() => undefined)
               clearMetrics()
               location.reload()
             }
