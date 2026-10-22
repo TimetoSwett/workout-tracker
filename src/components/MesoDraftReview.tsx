@@ -107,6 +107,8 @@ export function MesoDraftReview({ meso, settings, workouts, templates, mesocycle
       unit: draft.unit,
       weeksPlanned,
       deloadWeek: clampDeloadWeek(draft.deloadWeek, weeksPlanned),
+      startDate: meso.startDate || null,
+      trainingWeekdays: meso.trainingWeekdays || null,
       days,
       priorities,
       status: 'active',

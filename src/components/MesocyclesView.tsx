@@ -5,7 +5,11 @@ import { getState, saveMesocycle, setHistory, setSettings, uid, upsertMesocycle,
 import { parseRpExport } from '../rpImport'
 import { mesoPosition, muscleGroupName } from '../mesoEngine'
 import { cloneMesoAsTemplate } from '../mesoClone'
+import { isLocalDate } from '../dates'
+import { isValidTrainingWeekdays } from '../schedule'
 import { ExercisePicker } from './ExercisePicker'
+
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 type PriorityType = MesoPriority['type']
 const PRIORITY_TYPES: PriorityType[] = ['maintain', 'grow', 'emphasize']
@@ -15,6 +19,8 @@ interface Draft {
   name: string
   unit: 'lbs' | 'kg'
   weeksPlanned: number
+  startDate?: string
+  trainingWeekdays?: number[]
   days: MesoTemplateDay[]
   priorities: Record<number, PriorityType>
 }
@@ -26,7 +32,7 @@ function emptyDay(n: number): MesoTemplateDay {
 function draftFromMeso(m: Mesocycle): Draft {
   const priorities: Record<number, PriorityType> = {}
   for (const p of m.priorities) priorities[p.muscleGroupId] = p.type
-  return { id: m.id, name: m.name, unit: m.unit, weeksPlanned: m.weeksPlanned, days: m.days.map((d) => ({ ...d, exercises: [...d.exercises] })), priorities }
+  return { id: m.id, name: m.name, unit: m.unit, weeksPlanned: m.weeksPlanned, startDate: m.startDate ?? undefined, trainingWeekdays: m.trainingWeekdays ?? undefined, days: m.days.map((d) => ({ ...d, exercises: [...d.exercises] })), priorities }
 }
 
 function parseRepRange(v: string): [number, number] | undefined {
@@ -90,6 +96,9 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
       unit: draft.unit,
       weeksPlanned: Math.max(1, draft.weeksPlanned),
       deloadWeek: Math.max(0, draft.weeksPlanned - 1),
+      // null, not omitted: an explicit clear must beat the older record's value when synced
+      startDate: draft.startDate && isLocalDate(draft.startDate) ? draft.startDate : null,
+      trainingWeekdays: isValidTrainingWeekdays(draft.trainingWeekdays) ? draft.trainingWeekdays : null,
       days,
       priorities,
       status: existing.find((m) => m.id === draft.id)?.status ?? 'active',
@@ -177,6 +186,43 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
                 if (Number.isFinite(n) && n >= 1) patchDraft((d) => ({ ...d, weeksPlanned: n }))
               }}
             />
+          </div>
+          <div class="setting-row">
+            <span>Start date</span>
+            <input
+              class="set-input"
+              type="date"
+              value={draft.startDate ?? ''}
+              onInput={(e) => {
+                const v = (e.target as HTMLInputElement).value
+                patchDraft((d) => ({ ...d, startDate: v || undefined }))
+              }}
+            />
+          </div>
+          <div class="setting-row">
+            <span>Training days</span>
+            <div class="seg">
+              {WEEKDAY_NAMES.map((name, wd) => {
+                const on = draft.trainingWeekdays?.includes(wd) ?? false
+                return (
+                  <button
+                    key={wd}
+                    class={on ? 'active' : ''}
+                    aria-pressed={on}
+                    onClick={() =>
+                      patchDraft((d) => {
+                        const set = new Set(d.trainingWeekdays ?? [])
+                        if (!set.delete(wd)) set.add(wd)
+                        const next = [...set].sort((a, b) => a - b)
+                        return { ...d, trainingWeekdays: next.length ? next : undefined }
+                      })
+                    }
+                  >
+                    {name}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 
