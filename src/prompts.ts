@@ -153,10 +153,14 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
           if (f.pump != null) parts.push(`pump ${f.pump}`)
           if (f.soreness != null) parts.push(`soreness ${f.soreness}`)
           if (f.workload != null) parts.push(`workload ${f.workload}`)
+          if (f.recovery != null) parts.push(`recovery ${f.recovery}/3`)
           return `${muscleGroupName(f.muscleGroupId, settings.muscleGroupNames)}: ${parts.join(', ')}`
         })
         .join(' · ')
       lines.push(`Muscle feedback: ${feedback}`)
+      if (w.muscleFeedback.some((f) => f.recovery != null)) {
+        lines.push('Recovery scale: 0 = not recovered since last session, 3 = fully recovered')
+      }
     }
     // Skipped workouts never went through the finish flow, so they are never rated —
     // and must not read as "not rated" either: no line at all.

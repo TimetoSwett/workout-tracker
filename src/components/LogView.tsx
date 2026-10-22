@@ -15,9 +15,10 @@ import { exerciseHistory, weightsFilledForward } from '../setEntry'
 const PUMP_VALUES = [0, 1, 2]
 const SORENESS_VALUES = [-1, 0, 1, 2, 3]
 const WORKLOAD_VALUES = [0, 1, 2, 3]
+const RECOVERY_VALUES = [0, 1, 2, 3]
 const JOINT_VALUES = [0, 1, 2, 3, 4, 5]
 
-type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number }>
+type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number; recovery?: number }>
 
 /** The one channel that always arrives. A chime can be blocked by autoplay policy and a buzz
  *  can be swallowed by the platform, so when neither got through the timer status says so instead of
@@ -201,13 +202,11 @@ export function LogView() {
       showToast('Nothing logged — workout discarded')
       return
     }
-    if (trimmed.mesoId) {
-      const groupIds = [...new Set(trimmed.exercises.map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
-      if (groupIds.length > 0) {
-        setPendingFinish(trimmed)
-        setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
-        return
-      }
+    const groupIds = [...new Set(trimmed.exercises.map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
+    if (groupIds.length > 0) {
+      setPendingFinish(trimmed)
+      setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
+      return
     }
     // No muscle groups to rate: still stop at the finish screen for the joint-soreness rating.
     setPendingFinish(trimmed)
@@ -313,6 +312,21 @@ export function LogView() {
                 ))}
               </div>
             </div>
+            <div class="setting-row">
+              <span class="muted small">Recovery</span>
+              <div class="seg">
+                {RECOVERY_VALUES.map((v) => (
+                  <button
+                    key={v}
+                    class={feedback[id].recovery === v ? 'active' : ''}
+                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], recovery: v } } : f))}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p class="muted small">Recovery: 0 = not recovered since last time · 3 = fully recovered</p>
           </div>
         ))}
         <div class="btn-row">

@@ -21,6 +21,7 @@ export interface MuscleFeedback {
   pump?: number // 0-2
   soreness?: number // -1 to 3
   workload?: number // 0-3
+  recovery?: number // 0-3: 0 = not recovered since last session, 3 = fully recovered
   recommendedSets?: number // imported/historical only, display-only
 }
 

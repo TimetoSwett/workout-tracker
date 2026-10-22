@@ -93,5 +93,35 @@ check('unrated workout stays unrated through the wire round trip', () => {
   ok(back.ratings === undefined, 'unrated workout gained ratings in transit')
 })
 
+console.log('\nmuscle ratings: pump, soreness, recovery')
+check('muscle feedback prints pump, soreness and recovery with the recovery legend', () => {
+  const out = compileWorkouts(
+    [baseWorkout({ muscleFeedback: [{ muscleGroupId: 1, pump: 2, soreness: 1, workload: 3, recovery: 0 }] })],
+    settings,
+  )
+  ok(out.includes('pump 2'), 'pump missing from coach context')
+  ok(out.includes('soreness 1'), 'soreness missing from coach context')
+  ok(out.includes('recovery 0/3'), 'recovery missing from coach context')
+  ok(out.includes('Recovery scale: 0 = not recovered'), 'recovery legend missing')
+})
+check('muscle feedback without recovery prints no recovery legend', () => {
+  const out = compileWorkouts(
+    [baseWorkout({ muscleFeedback: [{ muscleGroupId: 1, pump: 1, soreness: 0 }] })],
+    settings,
+  )
+  ok(!/recovery/i.test(out), 'recovery must not appear when never rated')
+})
+check('recovery survives the wire round trip inside muscleFeedback', () => {
+  const w = baseWorkout({ muscleFeedback: [{ muscleGroupId: 6, pump: 1, recovery: 3 }] })
+  const back = decodeWorkout(encodeWorkout(w, 'kg'), 'kg')
+  ok(back.muscleFeedback?.[0]?.recovery === 3, 'recovery lost in wire round trip')
+  ok(back.muscleFeedback?.[0]?.pump === 1, 'pump lost in wire round trip')
+})
+check('old muscleFeedback (no recovery) decodes unchanged', () => {
+  const w = baseWorkout({ muscleFeedback: [{ muscleGroupId: 6, pump: 1, soreness: 2, workload: 2 }] })
+  const back = decodeWorkout(encodeWorkout(w, 'lbs'), 'lbs')
+  ok(back.muscleFeedback?.[0]?.recovery === undefined, 'old feedback gained a recovery value')
+})
+
 console.log(`\n${checks - failures}/${checks} checks passed`)
 if (failures) process.exit(1)
