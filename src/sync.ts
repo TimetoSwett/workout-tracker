@@ -34,11 +34,14 @@ function merge<T extends { id: string; updatedAt?: number; deleted?: boolean }>(
   local: T[],
   remote: T[],
   sortKey: (t: T) => number,
+  combine: (newer: T, older: T) => T = (newer) => newer,
 ): { merged: T[]; changedRemote: boolean } {
   const byId = new Map<string, T>()
   for (const item of [...local, ...remote]) {
     const cur = byId.get(item.id)
-    if (!cur || (item.updatedAt ?? 0) >= (cur.updatedAt ?? 0)) byId.set(item.id, item)
+    if (!cur) byId.set(item.id, item)
+    else if ((item.updatedAt ?? 0) >= (cur.updatedAt ?? 0)) byId.set(item.id, combine(item, cur))
+    else byId.set(item.id, combine(cur, item))
   }
   const merged = [...byId.values()].sort((a, b) => sortKey(a) - sortKey(b))
   const changedRemote =
@@ -48,6 +51,19 @@ function merge<T extends { id: string; updatedAt?: number; deleted?: boolean }>(
       return !m || m.updatedAt !== r.updatedAt
     })
   return { merged, changedRemote }
+}
+
+const SCHEDULE_KEYS = ['startDate', 'trainingWeekdays'] as const
+
+/** Newer mesocycle wins, except a schedule field the newer record has no key for at all
+ *  (saved by a build that predates it) is kept from the older record. An explicit `null`
+ *  is a deliberate clear and is not filled in. */
+function mergeMeso(newer: Mesocycle, older: Mesocycle): Mesocycle {
+  let out = newer
+  for (const k of SCHEDULE_KEYS) {
+    if (!(k in newer) && k in older) out = { ...out, [k]: older[k] }
+  }
+  return out
 }
 
 let syncing = false
@@ -74,7 +90,7 @@ export async function sync(): Promise<string | null> {
       const remoteMesos = remoteMesosRes.content ? parseJsonl<Mesocycle>(remoteMesosRes.content) : []
 
       const { merged: mergedWorkouts, changedRemote: workoutsChanged } = merge(workouts.map((w) => encodeWorkout(w, settings.units)), remoteWorkouts, (w) => w.startedAt)
-      const { merged: mergedMesos, changedRemote: mesosChanged } = merge(mesocycles, remoteMesos, (m) => m.createdAt)
+      const { merged: mergedMesos, changedRemote: mesosChanged } = merge(mesocycles, remoteMesos, (m) => m.createdAt, mergeMeso)
 
       // Validate before uploading and never overwrite edits made while a request awaited.
       const decoded = mergedWorkouts.map((w) => decodeWorkout(w, settings.units))

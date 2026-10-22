@@ -32,7 +32,7 @@ function emptyDay(n: number): MesoTemplateDay {
 function draftFromMeso(m: Mesocycle): Draft {
   const priorities: Record<number, PriorityType> = {}
   for (const p of m.priorities) priorities[p.muscleGroupId] = p.type
-  return { id: m.id, name: m.name, unit: m.unit, weeksPlanned: m.weeksPlanned, startDate: m.startDate, trainingWeekdays: m.trainingWeekdays, days: m.days.map((d) => ({ ...d, exercises: [...d.exercises] })), priorities }
+  return { id: m.id, name: m.name, unit: m.unit, weeksPlanned: m.weeksPlanned, startDate: m.startDate ?? undefined, trainingWeekdays: m.trainingWeekdays ?? undefined, days: m.days.map((d) => ({ ...d, exercises: [...d.exercises] })), priorities }
 }
 
 function parseRepRange(v: string): [number, number] | undefined {
@@ -96,8 +96,9 @@ export function MesocyclesView({ onPlanMeso }: Props = {}) {
       unit: draft.unit,
       weeksPlanned: Math.max(1, draft.weeksPlanned),
       deloadWeek: Math.max(0, draft.weeksPlanned - 1),
-      ...(draft.startDate && isLocalDate(draft.startDate) ? { startDate: draft.startDate } : {}),
-      ...(isValidTrainingWeekdays(draft.trainingWeekdays) ? { trainingWeekdays: draft.trainingWeekdays } : {}),
+      // null, not omitted: an explicit clear must beat the older record's value when synced
+      startDate: draft.startDate && isLocalDate(draft.startDate) ? draft.startDate : null,
+      trainingWeekdays: isValidTrainingWeekdays(draft.trainingWeekdays) ? draft.trainingWeekdays : null,
       days,
       priorities,
       status: existing.find((m) => m.id === draft.id)?.status ?? 'active',
