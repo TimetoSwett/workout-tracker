@@ -259,32 +259,36 @@ async function main() {
     eq(a.store.getState().mesocycles.find((m) => m.id === 'm1'), edited, 'edit round-tripped')
   })
 
-  await check('schedule fields: old-build edit keeps them, explicit null clear stays cleared', async () => {
+  await check('schedule fields: old-build cloud record is repaired, fresh device restores, null clear sticks', async () => {
     cloud = {}
+    revisions = {}
     const base = {
       id: 'm2', name: 'Plan', unit: 'lbs', weeksPlanned: 4, days: [], priorities: [],
-      status: 'active', createdAt: 1, updatedAt: 1,
+      status: 'active', createdAt: 1, updatedAt: 2,
     } as const
     const scheduled = { ...base, startDate: '2026-10-19', trainingWeekdays: [1, 4] }
+    // the cloud holds the plan exactly as an old build wrote it: newer, no schedule keys
+    cloud['/mesocycles.jsonl'] = JSON.stringify(base) + '\n'
     const a = await device('lbs')
-    a.store.setHistory([], [scheduled] as never)
+    a.store.setHistory([], [{ ...scheduled, updatedAt: 1 }] as never)
     eq(await a.sync(), null, 'A sync')
-    const b = await device('lbs')
-    eq(await b.sync(), null, 'B pulls')
-    // B is an old build: later edit, no schedule keys
-    b.store.setHistory([], [{ ...base, name: 'Renamed', updatedAt: 2 }] as never)
-    eq(await b.sync(), null, 'B sync')
-    eq(await a.sync(), null, 'A pulls')
-    eq(a.store.getState().mesocycles[0], { ...base, name: 'Renamed', updatedAt: 2, startDate: '2026-10-19', trainingWeekdays: [1, 4] }, 'A keeps schedule')
-    // new build clears later with the marker: stays cleared everywhere
-    a.store.setHistory([], [{ ...base, name: 'Renamed', updatedAt: 3, startDate: null, trainingWeekdays: null }] as never)
+    const stored = JSON.parse(cloud['/mesocycles.jsonl'].trim())
+    eq([stored.startDate, stored.trainingWeekdays, stored.updatedAt], ['2026-10-19', [1, 4], 2], 'cloud record repaired')
+    eq(a.store.getState().mesocycles[0], scheduled, 'A keeps schedule')
+    const fresh = await device('lbs')
+    eq(await fresh.sync(), null, 'fresh device sync')
+    eq(fresh.store.getState().mesocycles[0], scheduled, 'fresh device restores schedule')
+    // clearing the schedule is an explicit null and must not be resurrected
+    a.store.setHistory([], [{ ...base, updatedAt: 3, startDate: null, trainingWeekdays: null }] as never)
     eq(await a.sync(), null, 'A clear sync')
-    eq(await b.sync(), null, 'B pulls clear')
-    const got = b.store.getState().mesocycles[0]
-    eq([got.startDate, got.trainingWeekdays], [null, null], 'cleared on B')
+    eq(await fresh.sync(), null, 'fresh pulls clear')
     eq(await a.sync(), null, 'A re-syncs')
-    const mine = a.store.getState().mesocycles[0]
-    eq([mine.startDate, mine.trainingWeekdays], [null, null], 'cleared on A')
+    for (const d of [a, fresh]) {
+      const got = d.store.getState().mesocycles[0]
+      eq([got.startDate, got.trainingWeekdays], [null, null], 'cleared locally')
+    }
+    const after = JSON.parse(cloud['/mesocycles.jsonl'].trim())
+    eq([after.startDate, after.trainingWeekdays], [null, null], 'cloud stays cleared')
   })
 
   console.log(`\n${checks - failures}/${checks} checks passed`)
