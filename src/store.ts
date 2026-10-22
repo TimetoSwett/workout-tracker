@@ -81,22 +81,25 @@ function load(): Stored {
 let state: Stored = load()
 const listeners = new Set<() => void>()
 
-let storageError: string | null = null
+const storageErrors = new Map<string, string>()
 
-/** Set when the last save to localStorage failed (usually the quota). In-memory state is still current. */
+/** Set while any localStorage key's latest save has failed (usually the quota). In-memory state is still current. */
 export function getStorageError(): string | null {
-  return storageError
+  return storageErrors.get(HISTORY_KEY) ?? storageErrors.values().next().value ?? null
+}
+
+function isQuotaError(e: unknown): boolean {
+  return e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014)
 }
 
 function trySave(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value))
-    storageError = null
+    storageErrors.delete(key)
   } catch (e) {
-    const quota = e instanceof DOMException && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED')
-    storageError = quota
+    storageErrors.set(key, isQuotaError(e)
       ? 'Browser storage is full, so recent changes are only kept until this tab closes. Sync to Dropbox to keep them.'
-      : `Could not save to browser storage: ${e instanceof Error ? e.message : String(e)}`
+      : `Could not save to browser storage: ${e instanceof Error ? e.message : String(e)}`)
   }
 }
 
