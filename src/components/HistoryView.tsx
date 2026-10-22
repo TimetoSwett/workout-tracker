@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'preact/hooks'
 import type { Workout } from '../types'
 import { getState, setSettings, setTemplates, uid, useStore } from '../store'
-import { setWorkouts } from '../store'
+import { getStorageError, setWorkouts } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
@@ -150,6 +150,7 @@ export function HistoryView() {
   return (
     <div class="view cols">
       <h1>History</h1>
+      {getStorageError() && <p class="card span error" role="alert">{getStorageError()}</p>}
 
       <div class="card span">
         <h3>Weekly volume ({settings.units})</h3>

@@ -1,7 +1,8 @@
 import { useState } from 'preact/hooks'
-import type { LoggedSet, Workout } from '../types'
+import type { LoggedSet, Mesocycle, Workout } from '../types'
 import { commitPastEdit, dayMarkers, monthGrid, workoutsOnLocalDate } from '../calendar'
 import { localDate } from '../dates'
+import { canStartPlanned, plannedForRange } from '../schedule'
 import { getState, upsertWorkout } from '../store'
 import { sync } from '../sync'
 
@@ -34,11 +35,17 @@ export function LogCalendar({
   units,
   activeId,
   dropbox,
+  meso,
+  onStartPlanned,
 }: {
   workouts: Workout[]
   units: string
   activeId?: string
   dropbox: boolean
+  /** The active plan; only its schedule is shown as planned days. */
+  meso?: Mesocycle | null
+  /** Starts the plan's next session like the normal start. Omitted while a workout is open. */
+  onStartPlanned?: () => void
 }) {
   const today = localDate()
   const now = new Date()
@@ -48,8 +55,12 @@ export function LogCalendar({
   const [selected, setSelected] = useState<string | null>(null)
   const [draft, setDraft] = useState<Workout | null>(null)
 
-  const markers = dayMarkers(workouts)
   const cells = monthGrid(year, monthIndex)
+  const planned = plannedForRange(meso, workouts, today, cells[0].date, cells[cells.length - 1].date)
+  const markers = dayMarkers(workouts, { planned })
+  const plannedOnSelected = selected ? planned.filter((p) => p.date === selected) : []
+  // Only the plan's next session can be started: that is what the normal start flow begins.
+  const nextSlot = plannedForRange(meso, workouts, today, today, '9999-12-31')[0]?.slot
   const sessions = selected ? workoutsOnLocalDate(workouts, selected) : []
   const monthLabel = new Date(year, monthIndex, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 
@@ -118,13 +129,19 @@ export function LogCalendar({
           </div>
           <div class="cal-grid">
             {cells.map((cell) => {
-              const { done: count = 0, skipped = 0 } = markers.get(cell.date) ?? {}
+              const { done = 0, skipped = 0, planned: plannedCount = 0 } = markers.get(cell.date) ?? {}
+              const parts = [
+                done > 0 ? `${done} done` : '',
+                skipped > 0 ? `${skipped} skipped` : '',
+                plannedCount > 0 ? 'planned' : '',
+              ].filter(Boolean)
               const classes = [
                 'cal-day',
                 cell.inMonth ? '' : 'out',
                 cell.date === today ? 'today' : '',
                 cell.date === selected ? 'selected' : '',
-                count > 0 ? 'has' : skipped > 0 ? 'skipped' : '',
+                done > 0 ? 'has' : skipped > 0 ? 'skipped' : '',
+                plannedCount > 0 ? 'planned' : '',
               ]
                 .filter(Boolean)
                 .join(' ')
@@ -133,7 +150,7 @@ export function LogCalendar({
                   key={cell.date}
                   type="button"
                   class={classes}
-                  aria-label={`${cell.date}, ${count} workout${count === 1 ? '' : 's'}${skipped > 0 ? `, ${skipped} skipped` : ''}`}
+                  aria-label={`${cell.date}, ${parts.length > 0 ? parts.join(', ') : 'no workouts'}`}
                   aria-pressed={cell.date === selected}
                   onClick={() => pickDay(cell.date)}
                 >
@@ -145,7 +162,35 @@ export function LogCalendar({
           {selected && (
             <div>
               <div class="history-date">{formatDay(selected)}</div>
-              {sessions.length === 0 && <p class="muted small">No workout logged this day.</p>}
+              {sessions.length === 0 && plannedOnSelected.length === 0 && (
+                <p class="muted small">No workout logged this day.</p>
+              )}
+              {meso &&
+                !draft &&
+                plannedOnSelected.map((p) => {
+                  const day = meso.days[p.dayIndex]
+                  const canStart = canStartPlanned(p.date, today) && p.slot === nextSlot
+                  return (
+                    <div key={p.slot} class="past-session planned-session">
+                      <div class="workout-title">{p.label ?? day?.label ?? 'Workout'} (planned)</div>
+                      <div class="muted small">
+                        {meso.name} · Week {p.week + 1}/{meso.weeksPlanned}, day {p.dayIndex + 1}
+                      </div>
+                      {day && day.exercises.length > 0 && (
+                        <div class="muted small">{day.exercises.map((ex) => `${ex.name} ×${ex.sets}`).join(' · ')}</div>
+                      )}
+                      {canStart && onStartPlanned ? (
+                        <button class="btn small primary" type="button" onClick={onStartPlanned}>
+                          Start this
+                        </button>
+                      ) : (
+                        <p class="muted small">
+                          {canStart ? 'Finish the open workout to start this.' : 'Planned for later. You can start it on the day.'}
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
               {draft ? (
                 <div>
                   <p class="muted small">Editing this saved workout. The one you have open is left alone.</p>
@@ -234,6 +279,10 @@ export function LogCalendar({
               )}
             </div>
           )}
+          <p class="muted small cal-legend">
+            <span class="cal-key done" aria-hidden="true" /> done · <span class="cal-key skipped" aria-hidden="true" />{' '}
+            skipped · <span class="cal-key planned" aria-hidden="true" /> planned
+          </p>
           <p class="muted small">Weights are in {units}. Opening a day does not log anything.</p>
         </>
       )}
