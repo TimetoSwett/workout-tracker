@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout, WorkoutRatings } from '../types'
-import { getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
+import { finishWorkout, getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { buildSkippedWorkout, generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
@@ -179,10 +179,14 @@ export function LogView() {
     }))
   }
 
-  function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[], ratings?: WorkoutRatings) {
+  async function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[], ratings?: WorkoutRatings) {
     const finished: Workout = { ...base, endedAt: Date.now(), updatedAt: Date.now(), muscleFeedback, ratings }
-    upsertWorkout(finished)
-    setActive(null)
+    // The active workout is cleared only after the history write is committed; on failure it stays.
+    const err = await finishWorkout(finished)
+    if (err) {
+      showToast(`Workout not saved: ${err}`)
+      return
+    }
     setConfirmDiscard(false)
     setPendingFinish(null)
     setFeedback(null)

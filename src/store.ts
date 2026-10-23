@@ -146,40 +146,56 @@ function notify() {
 let historyReady = false
 let queued: HistorySlice | null = null
 let pumping: Promise<void> | null = null
+/** The IndexedDB read failed at startup: the stored history is unknown, so nothing may overwrite it. */
+let historyBlocked = false
+
+async function drainQueue(): Promise<void> {
+  while (queued) {
+    const slice = queued
+    queued = null
+    const before = storageErrors.get(HISTORY_KEY)
+    try {
+      await historyDb.set(historyDb.HISTORY_RECORD, { schemaVersion: HISTORY_SCHEMA, ...slice })
+      storageErrors.delete(HISTORY_KEY)
+    } catch (e) {
+      storageErrors.set(HISTORY_KEY, describeSaveError(e))
+    }
+    if (storageErrors.get(HISTORY_KEY) !== before) notify()
+  }
+}
 
 function pump(): Promise<void> {
-  pumping ??= (async () => {
-    try {
-      while (queued) {
-        const slice = queued
-        queued = null
-        const before = storageErrors.get(HISTORY_KEY)
-        try {
-          await historyDb.set(historyDb.HISTORY_RECORD, { schemaVersion: HISTORY_SCHEMA, ...slice })
-          storageErrors.delete(HISTORY_KEY)
-        } catch (e) {
-          storageErrors.set(HISTORY_KEY, describeSaveError(e))
-        }
-        if (storageErrors.get(HISTORY_KEY) !== before) notify()
-      }
-    } finally {
-      pumping = null
-    }
-  })()
-  return pumping
+  if (pumping) return pumping
+  // `finally` callbacks run in a later microtask, so they cannot clear `pumping` before it is assigned
+  // (an idle drain finishes synchronously and used to leave a resolved promise stuck here for good).
+  const p: Promise<void> = drainQueue().finally(() => {
+    if (pumping === p) pumping = null
+    // A change queued after the loop's last check but before this callback still needs a writer.
+    if (queued) void pump()
+  })
+  pumping = p
+  return p
 }
 
 function saveHistory() {
   // Before initStore() finishes, the loaded history is not in memory yet; writing now would clobber it.
-  if (!historyReady) return
+  // After a failed load the stored record is unknown, so it must not be replaced either.
+  if (!historyReady || historyBlocked) return
   const { workouts, mesocycles } = state
   queued = { workouts, mesocycles }
   void pump()
 }
 
 /** Resolves once every history change made so far has been written (or has failed and been reported). */
-export function flushHistory(): Promise<void> {
-  return pump()
+export async function flushHistory(): Promise<void> {
+  while (pumping || queued) await pump()
+}
+
+/** Flushes history and returns the storage error if the history is not safely stored, else null. */
+export async function commitHistory(): Promise<string | null> {
+  await flushHistory()
+  if (historyBlocked) return storageErrors.get(HISTORY_KEY) ?? 'History could not be loaded, so it was not saved.'
+  return storageErrors.get(HISTORY_KEY) ?? null
 }
 
 function fingerprint(h: HistorySlice): string {
@@ -203,6 +219,9 @@ async function migrateToIdb(h: HistorySlice): Promise<string | null> {
   }
 }
 
+const READ_ATTEMPTS = 3
+const READ_RETRY_MS = 50
+
 let initPromise: Promise<void> | null = null
 
 /** Loads history from IndexedDB, migrating it from localStorage first if needed. Await before reading history or syncing. Never rejects. */
@@ -217,11 +236,29 @@ export function initStore(): Promise<void> {
 
 async function loadHistory(): Promise<void> {
   let fromIdb: HistorySlice | null = null
-  try {
-    const rec = await historyDb.get(historyDb.HISTORY_RECORD)
-    if (isHistorySlice(rec)) fromIdb = rec
-  } catch (e) {
-    storageErrors.set(HISTORY_KEY, describeSaveError(e))
+  let readFailed = false
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const rec = await historyDb.get(historyDb.HISTORY_RECORD)
+      if (isHistorySlice(rec)) fromIdb = rec
+      break
+    } catch (e) {
+      if (attempt >= READ_ATTEMPTS - 1) {
+        readFailed = true
+        storageErrors.set(HISTORY_KEY, `Could not read your saved history, so changes to it will not be saved. Restart the app to try again. (${describeSaveError(e)})`)
+        break
+      }
+      await new Promise((r) => setTimeout(r, READ_RETRY_MS * (attempt + 1)))
+    }
+  }
+  if (readFailed) {
+    // Show whatever localStorage copy exists, but touch nothing: the IndexedDB record may be intact.
+    historyBlocked = true
+    const lsCopy = lsParse(HISTORY_KEY)
+    const history = isHistorySlice(lsCopy) ? lsCopy : boot.legacyHistory
+    if (history) state = { ...state, workouts: history.workouts, mesocycles: history.mesocycles }
+    notify()
+    return
   }
   const lsRaw = lsParse(HISTORY_KEY)
   const fromLs = isHistorySlice(lsRaw) ? lsRaw : null
@@ -368,4 +405,14 @@ export async function clearHistory() {
 
 export function uid(): string {
   return crypto.randomUUID()
+}
+
+/** Saves a finished workout and clears the active one only once the history write is committed.
+ *  On failure the active workout is kept and the error message is returned. */
+export async function finishWorkout(finished: Workout): Promise<string | null> {
+  upsertWorkout(finished)
+  const err = await commitHistory()
+  if (err) return err
+  setActive(null)
+  return null
 }
