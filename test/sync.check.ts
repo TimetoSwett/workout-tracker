@@ -153,7 +153,7 @@ async function main() {
     // `updatedAt`, so A's record wins the merge on B.
     const a2 = await device('lbs', a.storage)
     const { convertStoredWeights } = await import('../src/unitsMigration')
-    convertStoredWeights('lbs', 'kg')
+    await convertStoredWeights('lbs', 'kg')
     eq(benchOn(a2), 63.5, 'phone A now stores kg locally')
     eq(await a2.sync(), null, 'phone A re-syncs')
 

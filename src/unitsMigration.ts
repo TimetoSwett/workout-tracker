@@ -1,6 +1,6 @@
 import type { Units } from './units'
 import { convertWeight } from './units'
-import { getState, setActive, setHistory, setSettings } from './store'
+import { commitHistory, flushHistory, getState, setActive, setHistory, setSettings } from './store'
 import { getMetrics, setMetrics } from './metricsStore'
 
 /** Everything this app persists as a weight is a bare number in whatever `settings.units`
@@ -18,9 +18,18 @@ import { getMetrics, setMetrics } from './metricsStore'
  *  setting and has to be switched too. That is inherent to per-device units, not to this
  *  migration.
  *
+ *  History lives in IndexedDB and is written asynchronously, while the unit setting and
+ *  metrics are written to localStorage at once. If the unit were saved first and the history
+ *  write then failed, the next launch would read the old numbers under the new unit (100 lbs
+ *  as 100 kg). So the converted history is committed first; on failure the in-memory history
+ *  is put back, the unit and everything else stay untouched, and `error` says why.
+ *
  *  Returns the number of records touched, for the confirmation copy. */
-export function convertStoredWeights(from: Units, to: Units): { workouts: number; metrics: number } {
-  if (from === to) return { workouts: 0, metrics: 0 }
+export async function convertStoredWeights(
+  from: Units,
+  to: Units,
+): Promise<{ workouts: number; metrics: number; error: string | null }> {
+  if (from === to) return { workouts: 0, metrics: 0, error: null }
   const cv = <T extends number | null | undefined>(v: T): T => (v == null ? v : (convertWeight(v, from, to) as T))
   const now = Date.now()
 
@@ -39,6 +48,12 @@ export function convertStoredWeights(from: Units, to: Units): { workouts: number
   })
   // Mesocycles hold rep targets and set counts only — no weights — so they are untouched.
   setHistory(nextWorkouts, state.mesocycles)
+  const err = await commitHistory()
+  if (err) {
+    setHistory(state.workouts, state.mesocycles)
+    await flushHistory()
+    return { workouts: 0, metrics: 0, error: err }
+  }
 
   if (state.active) {
     setActive({
@@ -81,5 +96,5 @@ export function convertStoredWeights(from: Units, to: Units): { workouts: number
       : s.goal,
   })
 
-  return { workouts, metrics }
+  return { workouts, metrics, error: null }
 }

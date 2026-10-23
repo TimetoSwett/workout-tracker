@@ -69,13 +69,17 @@ export function SettingsView() {
 
   /** Every stored weight is a bare number in the current unit, so switching has to
    *  rewrite them all — otherwise a 5,050 lbs session just relabels as 5,050 kg. */
-  function switchUnits(to: Units) {
+  async function switchUnits(to: Units) {
     if (settings.units === to) return
     const from = settings.units
     if (!confirm(`Switch to ${to}? Every stored weight — logged sets, bodyweight, body metrics and your goal rate — will be converted from ${from} to ${to} on this device.`)) {
       return
     }
-    const { workouts, metrics } = convertStoredWeights(from, to)
+    const { workouts, metrics, error } = await convertStoredWeights(from, to)
+    if (error) {
+      flash(`Units not changed: ${error}`)
+      return
+    }
     flash(`Converted to ${to}: ${workouts} workout${workouts === 1 ? '' : 's'}, ${metrics} day${metrics === 1 ? '' : 's'} of body metrics`)
     if (dropboxConfigured(getState().settings)) {
       void sync()
