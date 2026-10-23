@@ -1,6 +1,6 @@
 import type { Units } from './units'
 import { convertWeight } from './units'
-import { commitHistory, flushHistory, getState, setActive, setHistory, setSettings } from './store'
+import { commitActiveAndSettings, commitHistory, flushHistory, getState, isConverting, runConversion } from './store'
 import { getMetrics, setMetrics } from './metricsStore'
 
 /** Everything this app persists as a weight is a bare number in whatever `settings.units`
@@ -21,8 +21,11 @@ import { getMetrics, setMetrics } from './metricsStore'
  *  History lives in IndexedDB and is written asynchronously, while the unit setting and
  *  metrics are written to localStorage at once. If the unit were saved first and the history
  *  write then failed, the next launch would read the old numbers under the new unit (100 lbs
- *  as 100 kg). So the converted history is committed first; on failure the in-memory history
- *  is put back, the unit and everything else stay untouched, and `error` says why.
+ *  as 100 kg). So the converted history is committed first, then the metrics, then the active
+ *  workout and settings (the unit) in one write. If any step fails, the history is committed
+ *  back to the original, metrics and the active workout are restored, the unit is left alone,
+ *  and `error` says why. History edits are refused (see `runConversion`) while this runs so a
+ *  rollback cannot drop one.
  *
  *  Returns the number of records touched, for the confirmation copy. */
 export async function convertStoredWeights(
@@ -30,6 +33,7 @@ export async function convertStoredWeights(
   to: Units,
 ): Promise<{ workouts: number; metrics: number; error: string | null }> {
   if (from === to) return { workouts: 0, metrics: 0, error: null }
+  if (isConverting()) return { workouts: 0, metrics: 0, error: 'A unit conversion is already running.' }
   const cv = <T extends number | null | undefined>(v: T): T => (v == null ? v : (convertWeight(v, from, to) as T))
   const now = Date.now()
 
@@ -47,54 +51,81 @@ export async function convertStoredWeights(
     return { ...w, exercises, bodyweight, updatedAt: now }
   })
   // Mesocycles hold rep targets and set counts only — no weights — so they are untouched.
-  setHistory(nextWorkouts, state.mesocycles)
-  const err = await commitHistory()
-  if (err) {
-    setHistory(state.workouts, state.mesocycles)
-    await flushHistory()
-    return { workouts: 0, metrics: 0, error: err }
-  }
 
-  if (state.active) {
-    setActive({
-      ...state.active,
-      exercises: state.active.exercises.map((ex) => ({
-        ...ex,
-        sets: ex.sets.map((s) => ({ ...s, weight: cv(s.weight), weightTarget: cv(s.weightTarget) })),
-      })),
-    })
-  }
+  return runConversion(async (writeHistory) => {
+    writeHistory(nextWorkouts, state.mesocycles)
+    const historyErr = await commitHistory()
+    if (historyErr) {
+      writeHistory(state.workouts, state.mesocycles)
+      await flushHistory()
+      return { workouts: 0, metrics: 0, error: historyErr }
+    }
 
-  let metrics = 0
-  setMetrics(
-    getMetrics().map((m) => {
-      if (m.weight == null && m.muscle == null && m.leanMass == null) return m
-      metrics++
-      return {
-        ...m,
-        weight: cv(m.weight),
-        muscle: cv(m.muscle),
-        leanMass: cv(m.leanMass),
-        updatedAt: now,
+    // The active workout, settings and metrics are not blocked during the history await, so they
+    // are read only now, right before the synchronous section that converts and (if needed) restores them.
+    const origMetrics = getMetrics()
+    const { active: origActive, settings: origSettings } = getState()
+
+    // Everything below is synchronous, so nothing can interleave with it or its rollback.
+    // `units` is the flag every reader keys off and lives in the same localStorage slice as the
+    // active workout, so both go in one write and only after history and metrics are stored.
+    let metrics = 0
+    try {
+      setMetrics(
+        origMetrics.map((m) => {
+          if (m.weight == null && m.muscle == null && m.leanMass == null) return m
+          metrics++
+          return {
+            ...m,
+            weight: cv(m.weight),
+            muscle: cv(m.muscle),
+            leanMass: cv(m.leanMass),
+            updatedAt: now,
+          }
+        }),
+      )
+      const s = origSettings
+      const saveErr = commitActiveAndSettings(
+        origActive && {
+          ...origActive,
+          exercises: origActive.exercises.map((ex) => ({
+            ...ex,
+            sets: ex.sets.map((x) => ({ ...x, weight: cv(x.weight), weightTarget: cv(x.weightTarget) })),
+          })),
+        },
+        {
+          ...s,
+          units: to,
+          profile: s.profile ? { ...s.profile, bodyweight: cv(s.profile.bodyweight) } : s.profile,
+          goal: s.goal
+            ? {
+                ...s.goal,
+                ratePerWeek:
+                  s.goal.ratePerWeek == null ? s.goal.ratePerWeek : convertWeight(s.goal.ratePerWeek, from, to, 2),
+              }
+            : s.goal,
+        },
+      )
+      if (saveErr) throw new Error(saveErr)
+    } catch (e) {
+      const failures: string[] = []
+      writeHistory(state.workouts, state.mesocycles)
+      const back = await commitHistory().catch((x: unknown) => String(x))
+      if (back) failures.push(`history: ${back}`)
+      try {
+        setMetrics([...origMetrics])
+      } catch (x) {
+        failures.push(`metrics: ${x instanceof Error ? x.message : String(x)}`)
       }
-    }),
-  )
+      if (commitActiveAndSettings(origActive, origSettings)) failures.push('settings')
+      const why = e instanceof Error ? e.message : String(e)
+      return {
+        workouts: 0,
+        metrics: 0,
+        error: failures.length ? `${why} (could not fully roll back — ${failures.join('; ')})` : why,
+      }
+    }
 
-  // Settings last: `units` is the flag every reader keys off, so it flips only once the
-  // numbers behind it have been rewritten.
-  const s = getState().settings
-  setSettings({
-    ...s,
-    units: to,
-    profile: s.profile ? { ...s.profile, bodyweight: cv(s.profile.bodyweight) } : s.profile,
-    goal: s.goal
-      ? {
-          ...s.goal,
-          ratePerWeek:
-            s.goal.ratePerWeek == null ? s.goal.ratePerWeek : convertWeight(s.goal.ratePerWeek, from, to, 2),
-        }
-      : s.goal,
+    return { workouts, metrics, error: null }
   })
-
-  return { workouts, metrics, error: null }
 }

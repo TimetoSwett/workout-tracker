@@ -137,6 +137,25 @@ function saveActive() {
   trySave(ACTIVE_KEY, { active, templates, settings } satisfies ActiveSlice)
 }
 
+/** True while a unit conversion is rewriting history. History edits made in that window would be
+ *  dropped by a rollback (or overwritten by the commit), so they are refused instead. */
+let converting = false
+
+export class ConversionInProgressError extends Error {
+  constructor() {
+    super('Units are being converted; try again in a moment.')
+    this.name = 'ConversionInProgressError'
+  }
+}
+
+export function isConverting(): boolean {
+  return converting
+}
+
+function assertNotConverting() {
+  if (converting) throw new ConversionInProgressError()
+}
+
 function notify() {
   for (const l of listeners) l()
 }
@@ -346,6 +365,7 @@ export function setActive(active: ActiveWorkout | null) {
 }
 
 export function setWorkouts(workouts: Workout[]) {
+  assertNotConverting()
   state = { ...state, workouts }
   emit({ history: true })
 }
@@ -359,6 +379,7 @@ export function upsertWorkout(workout: Workout) {
 }
 
 export function setMesocycles(mesocycles: Mesocycle[]) {
+  assertNotConverting()
   state = { ...state, mesocycles }
   emit({ history: true })
 }
@@ -391,8 +412,36 @@ export function saveMesocycle(meso: Mesocycle) {
 
 /** Bulk-set both workouts and mesocycles with a single history write (used by import). */
 export function setHistory(workouts: Workout[], mesocycles: Mesocycle[]) {
+  assertNotConverting()
+  writeHistory(workouts, mesocycles)
+}
+
+function writeHistory(workouts: Workout[], mesocycles: Mesocycle[]) {
   state = { ...state, workouts, mesocycles }
   emit({ history: true })
+}
+
+/** Runs a unit conversion with history edits blocked. `fn` gets the one history writer that
+ *  still works while blocked. Only one conversion runs at a time. */
+export async function runConversion<T>(
+  fn: (setHistory: (workouts: Workout[], mesocycles: Mesocycle[]) => void) => Promise<T>,
+): Promise<T> {
+  assertNotConverting()
+  converting = true
+  try {
+    return await fn(writeHistory)
+  } finally {
+    converting = false
+  }
+}
+
+/** Sets the active workout and settings in one localStorage write (they share a key), so a failed
+ *  save leaves neither changed on disk. Returns the save error, or null. In-memory state is changed
+ *  either way; the caller restores it on error. */
+export function commitActiveAndSettings(active: ActiveWorkout | null, settings: Settings): string | null {
+  state = { ...state, active, settings }
+  emit({ active: true })
+  return storageErrors.get(ACTIVE_KEY) ?? null
 }
 
 /** Removes everything this module stores, including the IndexedDB history and the legacy pre-split keys. */
