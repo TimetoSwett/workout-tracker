@@ -24,14 +24,16 @@ import { getMetrics, setMetrics } from './metricsStore'
  *  as 100 kg). So the converted history is committed first, then the metrics, then the active
  *  workout and settings (the unit) in one write. If any step fails, the history is committed
  *  back to the original, metrics and the active workout are restored, the unit is left alone,
- *  and `error` says why. History edits are refused (see `runConversion`) while this runs so a
+ *  and `error` says why. If the history cannot be put back, the converted history is what is
+ *  stored, so the new unit, metrics and active workout are kept to match it (`unitsChanged`).
+ *  History and active-workout edits are refused (see `runConversion`) while this runs so a
  *  rollback cannot drop one.
  *
  *  Returns the number of records touched, for the confirmation copy. */
 export async function convertStoredWeights(
   from: Units,
   to: Units,
-): Promise<{ workouts: number; metrics: number; error: string | null }> {
+): Promise<{ workouts: number; metrics: number; error: string | null; unitsChanged?: boolean }> {
   if (from === to) return { workouts: 0, metrics: 0, error: null }
   if (isConverting()) return { workouts: 0, metrics: 0, error: 'A unit conversion is already running.' }
   const cv = <T extends number | null | undefined>(v: T): T => (v == null ? v : (convertWeight(v, from, to) as T))
@@ -70,55 +72,70 @@ export async function convertStoredWeights(
     // `units` is the flag every reader keys off and lives in the same localStorage slice as the
     // active workout, so both go in one write and only after history and metrics are stored.
     let metrics = 0
-    try {
-      setMetrics(
-        origMetrics.map((m) => {
-          if (m.weight == null && m.muscle == null && m.leanMass == null) return m
-          metrics++
-          return {
-            ...m,
-            weight: cv(m.weight),
-            muscle: cv(m.muscle),
-            leanMass: cv(m.leanMass),
-            updatedAt: now,
+    const s = origSettings
+    const nextMetrics = origMetrics.map((m) => {
+      if (m.weight == null && m.muscle == null && m.leanMass == null) return m
+      metrics++
+      return {
+        ...m,
+        weight: cv(m.weight),
+        muscle: cv(m.muscle),
+        leanMass: cv(m.leanMass),
+        updatedAt: now,
+      }
+    })
+    const nextActive = origActive && {
+      ...origActive,
+      exercises: origActive.exercises.map((ex) => ({
+        ...ex,
+        sets: ex.sets.map((x) => ({ ...x, weight: cv(x.weight), weightTarget: cv(x.weightTarget) })),
+      })),
+    }
+    const nextSettings = {
+      ...s,
+      units: to,
+      profile: s.profile ? { ...s.profile, bodyweight: cv(s.profile.bodyweight) } : s.profile,
+      goal: s.goal
+        ? {
+            ...s.goal,
+            ratePerWeek: s.goal.ratePerWeek == null ? s.goal.ratePerWeek : convertWeight(s.goal.ratePerWeek, from, to, 2),
           }
-        }),
-      )
-      const s = origSettings
-      const saveErr = commitActiveAndSettings(
-        origActive && {
-          ...origActive,
-          exercises: origActive.exercises.map((ex) => ({
-            ...ex,
-            sets: ex.sets.map((x) => ({ ...x, weight: cv(x.weight), weightTarget: cv(x.weightTarget) })),
-          })),
-        },
-        {
-          ...s,
-          units: to,
-          profile: s.profile ? { ...s.profile, bodyweight: cv(s.profile.bodyweight) } : s.profile,
-          goal: s.goal
-            ? {
-                ...s.goal,
-                ratePerWeek:
-                  s.goal.ratePerWeek == null ? s.goal.ratePerWeek : convertWeight(s.goal.ratePerWeek, from, to, 2),
-              }
-            : s.goal,
-        },
-      )
+        : s.goal,
+    }
+    try {
+      setMetrics(nextMetrics)
+      const saveErr = commitActiveAndSettings(nextActive, nextSettings)
       if (saveErr) throw new Error(saveErr)
     } catch (e) {
       const failures: string[] = []
+      const why = e instanceof Error ? e.message : String(e)
       writeHistory(state.workouts, state.mesocycles)
       const back = await commitHistory().catch((x: unknown) => String(x))
-      if (back) failures.push(`history: ${back}`)
+      if (back) {
+        // The converted history is what is stored and could not be put back. Reverting the unit now would
+        // label those numbers with the old unit, so everything else moves to the new unit to match them.
+        writeHistory(nextWorkouts, state.mesocycles)
+        try {
+          setMetrics(nextMetrics)
+        } catch (x) {
+          failures.push(`metrics: ${x instanceof Error ? x.message : String(x)}`)
+        }
+        if (commitActiveAndSettings(nextActive, nextSettings)) failures.push('settings')
+        return {
+          workouts,
+          metrics,
+          unitsChanged: true,
+          error: `${why}; history could not be restored (${back}), so your data was kept converted to ${to}${
+            failures.length ? ` (and could not be fully saved — ${failures.join('; ')})` : ''
+          }`,
+        }
+      }
       try {
         setMetrics([...origMetrics])
       } catch (x) {
         failures.push(`metrics: ${x instanceof Error ? x.message : String(x)}`)
       }
       if (commitActiveAndSettings(origActive, origSettings)) failures.push('settings')
-      const why = e instanceof Error ? e.message : String(e)
       return {
         workouts: 0,
         metrics: 0,

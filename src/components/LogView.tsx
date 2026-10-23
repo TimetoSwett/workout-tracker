@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout, WorkoutRatings } from '../types'
-import { finishWorkout, getState, setActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
+import { ConversionInProgressError, finishWorkout, getState, setActive as storeSetActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { buildSkippedWorkout, generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
@@ -81,6 +81,16 @@ export function LogView() {
     setToast(message)
     clearTimeout(toastTimer.current)
     toastTimer.current = setTimeout(() => setToast(''), 2500) as unknown as number
+  }
+
+  /** Active-workout edits are refused while a unit conversion runs; say so instead of dropping them silently. */
+  function setActive(next: ActiveWorkout | null) {
+    try {
+      storeSetActive(next)
+    } catch (e) {
+      if (!(e instanceof ConversionInProgressError)) throw e
+      showToast(`Change not saved: ${e.message}`)
+    }
   }
 
   /** Reads the live store rather than the render-time `active`. Two patches in one

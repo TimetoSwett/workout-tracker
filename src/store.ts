@@ -137,8 +137,8 @@ function saveActive() {
   trySave(ACTIVE_KEY, { active, templates, settings } satisfies ActiveSlice)
 }
 
-/** True while a unit conversion is rewriting history. History edits made in that window would be
- *  dropped by a rollback (or overwritten by the commit), so they are refused instead. */
+/** True while a unit conversion is rewriting history and the active workout. Edits to either made in
+ *  that window would be dropped by a rollback (or overwritten by the commit), so they are refused. */
 let converting = false
 
 export class ConversionInProgressError extends Error {
@@ -360,6 +360,7 @@ export function setTemplates(templates: Template[]) {
 }
 
 export function setActive(active: ActiveWorkout | null) {
+  assertNotConverting()
   state = { ...state, active }
   emit({ active: true })
 }
@@ -459,9 +460,11 @@ export function uid(): string {
 /** Saves a finished workout and clears the active one only once the history write is committed.
  *  On failure the active workout is kept and the error message is returned. */
 export async function finishWorkout(finished: Workout): Promise<string | null> {
+  if (converting) return new ConversionInProgressError().message
   upsertWorkout(finished)
   const err = await commitHistory()
   if (err) return err
+  if (converting) return new ConversionInProgressError().message
   setActive(null)
   return null
 }

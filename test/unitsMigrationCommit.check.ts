@@ -119,6 +119,74 @@ async function main() {
     assert.equal(store.getState().active?.exercises[0].sets[0].weight, 100)
   }
 
+  // The settings save fails and the history rollback fails too: the converted history is what is stored,
+  // so the unit, metrics and active workout must stay converted to match it, also after a restart.
+  {
+    const env = makeEnv({ [METRICS_KEY]: JSON.stringify([metricsRow]) })
+    let { store, db, units } = await relaunch(env)
+    store.setWorkouts([fakeWorkout(1)])
+    await store.commitHistory()
+    store.setActive({ id: 'a1', exercises: [{ id: 'e', name: 'Fake', sets: [{ weight: 100, reps: 5 }] }] } as any)
+    const realSet = db.set
+    let writes = 0
+    ;(db as any).set = (...a: Parameters<typeof realSet>) =>
+      ++writes === 1 ? realSet(...a) : Promise.reject(new Error('rollback write failed'))
+    // Only the first unit save fails; the follow-up save that keeps the new unit goes through.
+    const ls = (globalThis as any).localStorage
+    const realItem = ls.setItem
+    let failed = false
+    ls.setItem = (k: string, v: string) => {
+      if (k === 'wt.active.v1' && !failed) {
+        failed = true
+        throw new DOMException('full', 'QuotaExceededError')
+      }
+      realItem(k, v)
+    }
+    const res = await units.convertStoredWeights('lbs', 'kg')
+    assert.equal(res.unitsChanged, true)
+    assert.match(res.error ?? '', /full/, 'the settings failure is returned')
+    assert.match(res.error ?? '', /rollback write failed/, 'the rollback failure is returned')
+    assert.equal(store.getState().settings.units, 'kg', 'unit matches the stored weights')
+    ls.setItem = realItem
+    ;(db as any).set = realSet
+
+    ;({ store } = await relaunch(env))
+    assert.equal(store.getState().settings.units, 'kg', 'unit matches the saved weights after restart')
+    assert.deepEqual(firstWeights(store), [45.4, 45.8, 46.3, 46.7, 47.2], 'converted history stored')
+    assert.deepEqual(metricsWeights(env), [90.7], 'metrics match the new unit')
+    assert.equal(store.getState().active?.exercises[0].sets[0].weight, 45.4, 'active workout matches the new unit')
+  }
+
+  // An active-workout edit made while the conversion is running is refused, and nothing is lost.
+  {
+    const env = makeEnv()
+    let { store, db, units } = await relaunch(env)
+    store.setWorkouts([fakeWorkout(1)])
+    await store.commitHistory()
+    const mk = (w: number) => ({ id: 'a1', exercises: [{ id: 'e', name: 'Fake', sets: [{ weight: w, reps: 5 }] }] }) as any
+    store.setActive(mk(100))
+    const realSet = db.set
+    let release!: () => void
+    const gate = new Promise<void>((r) => (release = r))
+    ;(db as any).set = async (...a: Parameters<typeof realSet>) => {
+      await gate
+      return realSet(...a)
+    }
+    const running = units.convertStoredWeights('lbs', 'kg')
+    assert.throws(() => store.setActive(mk(250)), store.ConversionInProgressError, 'active edit is blocked')
+    assert.throws(() => store.setActive(null), store.ConversionInProgressError)
+    assert.equal(await store.finishWorkout(fakeWorkout(9)), 'Units are being converted; try again in a moment.')
+    release()
+    const res = await running
+    ;(db as any).set = realSet
+    assert.equal(res.error, null)
+    assert.equal(store.getState().active?.exercises[0].sets[0].weight, 45.4, 'active workout kept, converted')
+    store.setActive(mk(46))
+    ;({ store } = await relaunch(env))
+    assert.equal(store.getState().active?.exercises[0].sets[0].weight, 46, 'edits allowed again afterwards')
+    assert.equal(store.getState().workouts.length, 1, 'blocked finish did not land')
+  }
+
   // An edit made while the conversion is running is refused, not silently lost.
   {
     const env = makeEnv()

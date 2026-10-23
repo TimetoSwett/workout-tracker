@@ -85,7 +85,7 @@ export function SettingsView() {
     }
     const { workouts, metrics, error } = result
     if (error) {
-      flash(`Units not changed: ${error}`)
+      flash(result.unitsChanged ? `Switched to ${to}, with errors: ${error}` : `Units not changed: ${error}`)
       return
     }
     flash(`Converted to ${to}: ${workouts} workout${workouts === 1 ? '' : 's'}, ${metrics} day${metrics === 1 ? '' : 's'} of body metrics`)
