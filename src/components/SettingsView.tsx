@@ -58,6 +58,7 @@ export function SettingsView() {
   const [hcBusy, setHcBusy] = useState(false)
   const [hcStatus, setHcStatus] = useState('')
   const [alertStatus, setAlertStatus] = useState('')
+  const [convertingUnits, setConvertingUnits] = useState(false)
 
   useEffect(() => {
     if (!isHealthConnectSupported()) return
@@ -69,13 +70,24 @@ export function SettingsView() {
 
   /** Every stored weight is a bare number in the current unit, so switching has to
    *  rewrite them all — otherwise a 5,050 lbs session just relabels as 5,050 kg. */
-  function switchUnits(to: Units) {
-    if (settings.units === to) return
+  async function switchUnits(to: Units) {
+    if (convertingUnits || settings.units === to) return
     const from = settings.units
     if (!confirm(`Switch to ${to}? Every stored weight — logged sets, bodyweight, body metrics and your goal rate — will be converted from ${from} to ${to} on this device.`)) {
       return
     }
-    const { workouts, metrics } = convertStoredWeights(from, to)
+    setConvertingUnits(true)
+    let result: Awaited<ReturnType<typeof convertStoredWeights>>
+    try {
+      result = await convertStoredWeights(from, to)
+    } finally {
+      setConvertingUnits(false)
+    }
+    const { workouts, metrics, error } = result
+    if (error) {
+      flash(result.unitsChanged ? `Switched to ${to}, with errors: ${error}` : `Units not changed: ${error}`)
+      return
+    }
     flash(`Converted to ${to}: ${workouts} workout${workouts === 1 ? '' : 's'}, ${metrics} day${metrics === 1 ? '' : 's'} of body metrics`)
     if (dropboxConfigured(getState().settings)) {
       void sync()
@@ -218,10 +230,10 @@ export function SettingsView() {
         <div class="setting-row">
           <span>Units</span>
           <div class="seg">
-            <button class={settings.units === 'lbs' ? 'active' : ''} onClick={() => switchUnits('lbs')}>
+            <button class={settings.units === 'lbs' ? 'active' : ''} disabled={convertingUnits} onClick={() => switchUnits('lbs')}>
               lbs
             </button>
-            <button class={settings.units === 'kg' ? 'active' : ''} onClick={() => switchUnits('kg')}>
+            <button class={settings.units === 'kg' ? 'active' : ''} disabled={convertingUnits} onClick={() => switchUnits('kg')}>
               kg
             </button>
           </div>
@@ -552,10 +564,10 @@ export function SettingsView() {
         <p class="muted small">Exports contain workouts only, not settings, health metrics, plans, or credentials.
           JSON includes weight units. Imports add new workouts; existing workouts and deletions are kept.</p>
         <div class="btn-row">
-          <button class="btn ghost" onClick={exportJson}>
+          <button class="btn ghost" disabled={convertingUnits} onClick={exportJson}>
             Export workouts JSON
           </button>
-          <button class="btn ghost" onClick={exportCsv}>
+          <button class="btn ghost" disabled={convertingUnits} onClick={exportCsv}>
             Export CSV
           </button>
           <label class="btn ghost file-btn">
@@ -564,6 +576,7 @@ export function SettingsView() {
               type="file"
               accept="application/json"
               hidden
+              disabled={convertingUnits}
               onChange={(e) => {
                 const f = (e.target as HTMLInputElement).files?.[0]
                 if (f) void importJson(f)
@@ -585,9 +598,10 @@ export function SettingsView() {
         )}
         <button
           class="btn danger wide"
-          onClick={() => {
+          disabled={convertingUnits}
+          onClick={async () => {
             if (confirm('Clear ALL local data? Cloud copy (if any) is kept.')) {
-              clearHistory()
+              await clearHistory().catch(() => undefined)
               clearMetrics()
               location.reload()
             }

@@ -40,7 +40,7 @@ try {
       '--rootDir', '.',
       '--module', 'commonjs',
       '--target', 'es2023',
-      '--lib', 'es2023',
+      '--lib', 'es2023,dom',
       '--types', 'node',
       '--strict',
       '--skipLibCheck',

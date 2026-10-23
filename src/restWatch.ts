@@ -21,7 +21,7 @@
  *  notification or alarm and is tracked separately; what this module guarantees is that a
  *  foreground rest alerts on time no matter where the user is in the app. */
 
-import { getState, setActive, subscribe } from './store'
+import { ConversionInProgressError, getState, setActive, subscribe } from './store'
 import { playRestAlert, type AlertOutcome } from './restAlert'
 
 /** How late an expiry may be and still be worth announcing.
@@ -103,7 +103,15 @@ function expired(deadline: number) {
 
   // Clear the total alongside the deadline: Skip already cleared both, so leaving it behind
   // on expiry stored a rest total with no rest attached to it.
-  setActive({ ...getState().active!, restEndsAt: undefined, restTotal: undefined })
+  try {
+    setActive({ ...getState().active!, restEndsAt: undefined, restTotal: undefined })
+  } catch (e) {
+    if (!(e instanceof ConversionInProgressError)) throw e
+    // A unit conversion owns the active workout for a moment; expire the rest once it is done.
+    armedFor = deadline
+    timer = setTimeout(() => expired(deadline), 250) as unknown as number
+    return
+  }
   if (late < GRACE_MS) setDone({ at: deadline, outcome: playRestAlert() })
 }
 

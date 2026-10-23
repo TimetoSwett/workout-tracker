@@ -13,7 +13,7 @@ A free, offline-first PWA for logging workouts. Data syncs to **your own Dropbox
 - **Sync** — all workouts stored as plain JSONL in your Dropbox at `/Apps/Workout Tracker/workouts.jsonl` — your data, readable by anything
 - **Offline-first** — works with zero signal in the gym; syncs when back online
 
-No accounts, no server, no subscription. Everything (including your API keys) stays in your browser's localStorage.
+No accounts, no server, no subscription. Everything stays in your browser: workout history in IndexedDB (which has room for large imports), and settings, templates, the active workout and your API keys in localStorage.
 
 ## Install on your phone (Android)
 
