@@ -16,6 +16,10 @@ export interface LoggedExercise {
   templateExerciseId?: string
   /** Set when this exercise was skipped for the session. The sets are not performed. */
   skipReason?: string
+  /** How pumped this exercise felt. 0 = none, 2 = lots. */
+  pump?: number
+  /** How recovered this exercise felt. 0 = not recovered, 3 = fully recovered. */
+  recovery?: number
 }
 
 export interface MuscleFeedback {

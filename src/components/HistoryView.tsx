@@ -5,7 +5,7 @@ import { getStorageError, setWorkouts } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { durationMin, setCount, volumeOf } from '../prompts'
-import { jointSorenessText, muscleFeedbackLines } from '../ratings'
+import { exerciseFeelText, jointSorenessText, muscleFeedbackLines } from '../ratings'
 import { isScoringWorkout, liftRecords, type RecordSet } from '../records'
 import { dateOf, localDate } from '../dates'
 
@@ -238,6 +238,7 @@ export function HistoryView() {
                     ))}
                   </div>
                   )}
+                  {exerciseFeelText(ex) && <div class="muted small">{exerciseFeelText(ex)}</div>}
                 </div>
               ))}
               <RatingLines w={w} overrides={settings.muscleGroupNames} />

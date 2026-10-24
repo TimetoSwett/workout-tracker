@@ -148,6 +148,12 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
         .join(', ')
       lines.push(`- ${ex.name}: ${sets}`)
       if (ex.notes) lines.push(`  notes: ${ex.notes}`)
+      if (ex.pump != null || ex.recovery != null) {
+        const feel: string[] = []
+        if (ex.pump != null) feel.push(`pump ${ex.pump}/2`)
+        if (ex.recovery != null) feel.push(`recovery ${ex.recovery}/3`)
+        lines.push(`  feel: ${feel.join(', ')}`)
+      }
     }
     if (w.exercises.length > 0) {
       lines.push(
@@ -171,6 +177,8 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
       if (w.muscleFeedback.some((f) => f.recovery != null)) {
         lines.push('Recovery scale: 0 = not recovered since last session, 3 = fully recovered')
       }
+    } else if (w.status !== 'skipped' && w.exercises.some((ex) => !ex.skipReason && ex.recovery != null)) {
+      lines.push('Recovery scale: 0 = not recovered since last session, 3 = fully recovered')
     }
     // Skipped workouts never went through the finish flow, so they are never rated —
     // and must not read as "not rated" either: no line at all.

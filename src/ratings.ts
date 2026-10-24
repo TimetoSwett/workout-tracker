@@ -1,4 +1,4 @@
-import type { Workout } from './types'
+import type { LoggedExercise, Workout } from './types'
 import { muscleGroupName } from './mesoEngine'
 
 /**
@@ -28,4 +28,30 @@ export function muscleFeedbackLines(w: Workout, overrides: Record<number, string
     if (parts.length) lines.push(`${muscleGroupName(f.muscleGroupId, overrides)}: ${parts.join(' · ')}`)
   }
   return lines
+}
+
+/** Pump and recovery for one exercise, or null when it was skipped or not rated. */
+export function exerciseFeelText(ex: LoggedExercise): string | null {
+  if (ex.skipReason) return null
+  const parts: string[] = []
+  if (ex.pump != null) parts.push(`pump ${ex.pump}/2`)
+  if (ex.recovery != null) parts.push(`recovery ${ex.recovery}/3`)
+  return parts.length ? parts.join(' · ') : null
+}
+
+/** Copy a finish-screen rating onto the exercise it belongs to. Skipped exercises are left alone. */
+export function withExerciseFeel(
+  exercises: LoggedExercise[],
+  feel: Record<string, { pump?: number; recovery?: number }>,
+): LoggedExercise[] {
+  return exercises.map((ex) => {
+    if (ex.skipReason) return ex
+    const rating = feel[ex.id]
+    if (!rating) return ex
+    return {
+      ...ex,
+      ...(rating.pump != null ? { pump: rating.pump } : {}),
+      ...(rating.recovery != null ? { recovery: rating.recovery } : {}),
+    }
+  })
 }

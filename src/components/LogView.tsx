@@ -16,6 +16,7 @@ import { localDate, localDateDaysAgo } from '../dates'
 import { isScoringWorkout } from '../records'
 import { dayMarkers } from '../calendar'
 import { exerciseHistory, weightsFilledForward } from '../setEntry'
+import { withExerciseFeel } from '../ratings'
 
 const PUMP_VALUES = [0, 1, 2]
 const SORENESS_VALUES = [-1, 0, 1, 2, 3]
@@ -45,6 +46,7 @@ export function LogView() {
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
   const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
+  const [exerciseFeel, setExerciseFeel] = useState<Record<string, { pump?: number; recovery?: number }>>({})
   const [jointSoreness, setJointSoreness] = useState<number | undefined>(undefined)
 
   const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported) ?? null
@@ -203,6 +205,7 @@ export function LogView() {
     setConfirmDiscard(false)
     setPendingFinish(null)
     setFeedback(null)
+    setExerciseFeel({})
     setJointSoreness(undefined)
     showToast('Workout saved ✓')
     if (dropboxConfigured(settings)) sync()
@@ -226,15 +229,11 @@ export function LogView() {
       showToast('Nothing logged — workout discarded')
       return
     }
+    const rated = Object.fromEntries(trimmed.exercises.filter((ex) => !ex.skipReason).map((ex) => [ex.id, {}]))
+    setExerciseFeel(rated)
     const groupIds = [...new Set(trimmed.exercises.filter((ex) => !ex.skipReason).map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
-    if (groupIds.length > 0) {
-      setPendingFinish(trimmed)
-      setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
-      return
-    }
-    // No muscle groups to rate: still stop at the finish screen for the joint-soreness rating.
     setPendingFinish(trimmed)
-    setFeedback({})
+    setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
   }
 
   function skipMesoDay(reason: string) {
@@ -315,23 +314,47 @@ export function LogView() {
             </div>
           </div>
         </div>
-        {groupIds.map((id) => (
-          <div key={id} class="card">
-            <h3>{muscleGroupName(id, settings.muscleGroupNames)}</h3>
+        {pendingFinish.exercises.filter((ex) => !ex.skipReason).map((ex) => (
+          <div key={ex.id} class="card">
+            <h3>{ex.name}</h3>
             <div class="setting-row">
               <span class="muted small">Pump</span>
               <div class="seg">
                 {PUMP_VALUES.map((v) => (
                   <button
                     key={v}
-                    class={feedback[id].pump === v ? 'active' : ''}
-                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], pump: v } } : f))}
+                    type="button"
+                    class={exerciseFeel[ex.id]?.pump === v ? 'active' : ''}
+                    onClick={() => setExerciseFeel((f) => ({ ...f, [ex.id]: { ...f[ex.id], pump: v } }))}
                   >
                     {v}
                   </button>
                 ))}
               </div>
             </div>
+            <div class="setting-row">
+              <span class="muted small">Recovery</span>
+              <div class="seg">
+                {RECOVERY_VALUES.map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    class={exerciseFeel[ex.id]?.recovery === v ? 'active' : ''}
+                    onClick={() => setExerciseFeel((f) => ({ ...f, [ex.id]: { ...f[ex.id], recovery: v } }))}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+        {pendingFinish.exercises.some((ex) => !ex.skipReason) && (
+          <p class="muted small">Pump: 0 = none, 2 = lots. Recovery: 0 = not recovered since last time, 3 = fully recovered.</p>
+        )}
+        {groupIds.map((id) => (
+          <div key={id} class="card">
+            <h3>{muscleGroupName(id, settings.muscleGroupNames)}</h3>
             <div class="setting-row">
               <span class="muted small">Soreness</span>
               <div class="seg">
@@ -360,33 +383,23 @@ export function LogView() {
                 ))}
               </div>
             </div>
-            <div class="setting-row">
-              <span class="muted small">Recovery</span>
-              <div class="seg">
-                {RECOVERY_VALUES.map((v) => (
-                  <button
-                    key={v}
-                    class={feedback[id].recovery === v ? 'active' : ''}
-                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], recovery: v } } : f))}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <p class="muted small">Recovery: 0 = not recovered since last time · 3 = fully recovered</p>
           </div>
         ))}
         <div class="btn-row">
           <button
             class="btn primary wide"
-            onClick={() =>
+            onClick={() => {
+              const muscles = groupIds.flatMap((id) => {
+                const row = feedback[id]
+                if (row?.soreness == null && row?.workload == null) return []
+                return [{ muscleGroupId: id, soreness: row.soreness, workload: row.workload }]
+              })
               saveFinished(
-                pendingFinish,
-                groupIds.length ? groupIds.map((id) => ({ muscleGroupId: id, ...feedback[id] })) : undefined,
+                { ...pendingFinish, exercises: withExerciseFeel(pendingFinish.exercises, exerciseFeel) },
+                muscles.length ? muscles : undefined,
                 jointSoreness != null ? { jointSoreness } : undefined,
               )
-            }
+            }}
           >
             Save workout
           </button>
