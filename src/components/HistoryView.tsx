@@ -212,7 +212,7 @@ export function HistoryView() {
                 {w.name ?? 'Workout'} <span class="muted">· {dateOf(w)}</span>
               </div>
               <div class="muted small">
-                {w.status === 'skipped' ? 'Skipped' : (
+                {w.status === 'skipped' ? `Skipped${w.skipReason ? ` · ${w.skipReason}` : ''}` : (
                   <>
                     {w.exercises.length} exercises · {setCount(w)} sets · {durationMin(w)} min ·{' '}
                     {Math.round(volumeOf(w)).toLocaleString()} {settings.units} volume
@@ -227,6 +227,9 @@ export function HistoryView() {
               {w.status !== 'skipped' && w.exercises.map((ex) => (
                 <div key={ex.id} class="detail-ex">
                   <div class="detail-ex-name">{ex.name}</div>
+                  {ex.skipReason ? (
+                    <div class="muted small">Skipped · {ex.skipReason}</div>
+                  ) : (
                   <div class="detail-sets">
                     {ex.sets.map((s, i) => (
                       <span key={i} class="set-badge">
@@ -234,6 +237,7 @@ export function HistoryView() {
                       </span>
                     ))}
                   </div>
+                  )}
                 </div>
               ))}
               <RatingLines w={w} overrides={settings.muscleGroupNames} />

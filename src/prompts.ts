@@ -95,7 +95,9 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
 
   const announced = new Set<string>()
   for (const w of workouts) {
-    const dur = w.status === 'skipped' ? ' — Skipped' : w.endedAt ? ` (${durationMin(w)} min)` : ''
+    const dur = w.status === 'skipped'
+      ? ` — Skipped${w.skipReason ? ` (${w.skipReason})` : ''}`
+      : w.endedAt ? ` (${durationMin(w)} min)` : ''
     const meso = w.mesoId ? ` [meso week ${(w.mesoWeek ?? 0) + 1}, day ${(w.mesoDayPosition ?? 0) + 1}]` : ''
     lines.push(`\n## ${dateOf(w)} — ${w.name ?? 'Workout'}${dur}${meso}`)
     if (w.mesoId && !announced.has(w.mesoId)) {
@@ -118,6 +120,11 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
     let hardSets = 0
     const repBuckets = { '1-5': 0, '6-10': 0, '11-15': 0, '16+': 0 }
     for (const ex of w.exercises) {
+      if (ex.skipReason) {
+        lines.push(`- ${ex.name}: skipped (${ex.skipReason})`)
+        if (ex.notes) lines.push(`  notes: ${ex.notes}`)
+        continue
+      }
       const sets = ex.sets
         .map((s) => {
           const performed = counts && isHardSet(s)

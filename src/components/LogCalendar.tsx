@@ -262,7 +262,7 @@ export function LogCalendar({
                   <div key={w.id} class="past-session">
                     <div class="workout-title">{w.name ?? w.activity?.type ?? 'Workout'}</div>
                     <div class="muted small">
-                      {w.status === 'skipped' ? 'Skipped · ' : ''}{clock(w.startedAt)}
+                      {w.status === 'skipped' ? `Skipped${w.skipReason ? ` · ${w.skipReason}` : ''} · ` : ''}{clock(w.startedAt)}
                       {w.activity ? ` · ${w.activity.durationMin} min` : ''}
                       {w.exercises.length > 0 ? ` · ${w.exercises.map((ex) => ex.name).join(' · ')}` : ''}
                     </div>

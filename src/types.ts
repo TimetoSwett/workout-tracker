@@ -14,6 +14,8 @@ export interface LoggedExercise {
   notes?: string
   muscleGroupId?: number
   templateExerciseId?: string
+  /** Set when this exercise was skipped for the session. The sets are not performed. */
+  skipReason?: string
 }
 
 export interface MuscleFeedback {
@@ -44,6 +46,8 @@ export interface Workout {
   mesoWeek?: number
   mesoDayPosition?: number
   status?: 'complete' | 'partial' | 'skipped'
+  /** Why a whole day was skipped. Absent on a day that was trained. */
+  skipReason?: string
   bodyweight?: number
   muscleFeedback?: MuscleFeedback[]
   ratings?: WorkoutRatings

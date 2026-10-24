@@ -42,12 +42,14 @@ export function buildSkippedWorkout(
   position: MesoPosition,
   now: number,
   id: string,
+  reason?: string,
 ): Workout {
   return {
     id,
     date: dateOf({ startedAt: now })!,
     name: meso.days[position.dayIndex]?.label ?? meso.name,
     status: 'skipped',
+    ...(reason ? { skipReason: reason } : {}),
     exercises: [],
     mesoId: meso.id,
     mesoWeek: position.weekIndex,
@@ -69,7 +71,7 @@ function roundToPlate(w: number): number {
 function lastPerformance(templateExerciseId: string, workouts: Workout[]): LoggedExercise | null {
   for (let i = workouts.length - 1; i >= 0; i--) {
     for (const ex of workouts[i].exercises) {
-      if (ex.templateExerciseId === templateExerciseId) return ex
+      if (ex.templateExerciseId === templateExerciseId && !ex.skipReason) return ex
     }
   }
   return null

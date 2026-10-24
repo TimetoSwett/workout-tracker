@@ -4,6 +4,8 @@ import { ConversionInProgressError, finishWorkout, getState, setActive as storeS
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { buildSkippedWorkout, generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
+import { skipExercise, unskipExercise } from '../skipExercise'
+import { SkipReasonDialog } from './SkipReason'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
 import { LogCalendar } from './LogCalendar'
 import { NextDays } from './NextDays'
@@ -36,6 +38,7 @@ export function LogView() {
   const { active, settings, workouts, templates, mesocycles } = useStore()
   const [picker, setPicker] = useState<'add' | number | null>(null)
   const [historyId, setHistoryId] = useState<string | null>(null)
+  const [skipPrompt, setSkipPrompt] = useState<null | { kind: 'day' } | { kind: 'exercise'; id: string }>(null)
   const weightBefore = useRef<number | null>(null)
   const [tick, setTick] = useState(0)
   const [toast, setToast] = useState('')
@@ -210,8 +213,12 @@ export function LogView() {
     const trimmed: ActiveWorkout = {
       ...active,
       exercises: active.exercises
-        .map((ex) => ({ ...ex, sets: ex.sets.filter((s) => (s.weight ?? 0) > 0 || (s.reps ?? 0) > 0) }))
-        .filter((ex) => ex.sets.length > 0),
+        .map((ex) =>
+          ex.skipReason
+            ? ex
+            : { ...ex, sets: ex.sets.filter((s) => (s.weight ?? 0) > 0 || (s.reps ?? 0) > 0) },
+        )
+        .filter((ex) => ex.skipReason || ex.sets.length > 0),
     }
     if (trimmed.exercises.length === 0) {
       setActive(null)
@@ -219,7 +226,7 @@ export function LogView() {
       showToast('Nothing logged — workout discarded')
       return
     }
-    const groupIds = [...new Set(trimmed.exercises.map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
+    const groupIds = [...new Set(trimmed.exercises.filter((ex) => !ex.skipReason).map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
     if (groupIds.length > 0) {
       setPendingFinish(trimmed)
       setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
@@ -230,15 +237,28 @@ export function LogView() {
     setFeedback({})
   }
 
-  function skipMesoDay() {
+  function skipMesoDay(reason: string) {
     if (!activeMeso || getState().active) return
     const pos = mesoPosition(activeMeso, getState().workouts)
     const day = activeMeso.days[pos.dayIndex]
-    if (!day || !confirm(`Skip ${day.label}? This advances the plan to the next day.`)) return
-    const now = Date.now()
-    upsertWorkout(buildSkippedWorkout(activeMeso, pos, now, uid()))
+    if (!day) return
+    upsertWorkout(buildSkippedWorkout(activeMeso, pos, Date.now(), uid(), reason))
     showToast('Day skipped')
     if (dropboxConfigured(settings)) sync()
+  }
+
+  function applySkip(reason: string) {
+    const prompt = skipPrompt
+    setSkipPrompt(null)
+    if (!prompt) return
+    if (prompt.kind === 'day') {
+      skipMesoDay(reason)
+      return
+    }
+    patch((a) => ({
+      ...a,
+      exercises: a.exercises.map((ex) => (ex.id === prompt.id ? skipExercise(ex, reason) : ex)),
+    }))
   }
 
   function startMesoWorkout() {
@@ -398,7 +418,7 @@ export function LogView() {
                     Start {day?.label ?? 'workout'}
                   </button>
                   {day && (
-                    <button class="btn ghost" onClick={skipMesoDay}>
+                    <button class="btn ghost" type="button" onClick={() => setSkipPrompt({ kind: 'day' })}>
                       Skip day
                     </button>
                   )}
@@ -444,6 +464,17 @@ export function LogView() {
           </div>
         )}
         {toast && <div class="toast">{toast}</div>}
+        {skipPrompt?.kind === 'day' && (
+          <SkipReasonDialog
+            title={
+              activeMeso
+                ? `Skip ${activeMeso.days[mesoPosition(activeMeso, workouts).dayIndex]?.label ?? 'day'}?`
+                : 'Skip day?'
+            }
+            onChoose={applySkip}
+            onCancel={() => setSkipPrompt(null)}
+          />
+        )}
       </div>
     )
   }
@@ -488,6 +519,29 @@ export function LogView() {
               >
                 History
               </button>
+              {ex.skipReason ? (
+                <button
+                  class="text-btn"
+                  type="button"
+                  onClick={() =>
+                    patch((a) => ({
+                      ...a,
+                      exercises: a.exercises.map((e) => (e.id === ex.id ? unskipExercise(e) : e)),
+                    }))
+                  }
+                >
+                  Undo
+                </button>
+              ) : (
+                <button
+                  class="text-btn"
+                  type="button"
+                  aria-label={`Skip ${ex.name}`}
+                  onClick={() => setSkipPrompt({ kind: 'exercise', id: ex.id })}
+                >
+                  Skip
+                </button>
+              )}
               <button class="icon-btn" title="Swap exercise (just for today)" onClick={() => setPicker(exIdx)}>
                 ⇄
               </button>
@@ -500,6 +554,9 @@ export function LogView() {
               </button>
             </div>
           </div>
+          {ex.skipReason ? (
+            <p class="muted">Skipped · {ex.skipReason}</p>
+          ) : (
           <div class="set-grid">
             <div class="set-row set-labels">
               <span>SET</span>
@@ -566,6 +623,8 @@ export function LogView() {
               ＋ Add set
             </button>
           </div>
+          )}
+          {!ex.skipReason && (
           <input
             class={`note-input ${ex.notes ? 'filled' : ''}`}
             type="text"
@@ -573,6 +632,7 @@ export function LogView() {
             value={ex.notes ?? ''}
             onInput={(e) => patchExercise(exIdx, { notes: (e.target as HTMLInputElement).value || undefined })}
           />
+          )}
         </div>
       ))}
 
@@ -621,6 +681,13 @@ export function LogView() {
         />
       )}
       {toast && <div class="toast">{toast}</div>}
+      {skipPrompt?.kind === 'exercise' && (
+        <SkipReasonDialog
+          title={`Skip ${active.exercises.find((ex) => ex.id === skipPrompt.id)?.name ?? 'exercise'}?`}
+          onChoose={applySkip}
+          onCancel={() => setSkipPrompt(null)}
+        />
+      )}
     </div>
   )
 }
