@@ -1,6 +1,12 @@
 import type { LoggedExercise, LoggedSet, Workout } from './types'
 import { isCompletedSet, isScoringWorkout } from './records'
 
+/** Every planned set of this exercise has been checked off. A skipped exercise
+ *  and an exercise with no sets are not done. */
+export function allSetsDone(ex: { skipReason?: string; sets: { done?: boolean }[] }): boolean {
+  return !ex.skipReason && ex.sets.length > 0 && ex.sets.every((s) => s.done === true)
+}
+
 /** A set the user has not finished. Skipped and completed rows are left alone;
  *  a pending or unticked row is still open. */
 export function isUnfinishedSet(s: LoggedSet): boolean {

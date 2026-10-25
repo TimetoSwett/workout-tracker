@@ -15,8 +15,7 @@ import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
 import { isScoringWorkout } from '../records'
 import { dayMarkers } from '../calendar'
-import { exerciseHistory, weightsFilledForward } from '../setEntry'
-import { withExerciseFeel } from '../ratings'
+import { exerciseHistory, weightsFilledForward, allSetsDone } from '../setEntry'
 
 const PUMP_VALUES = [0, 1, 2]
 const SORENESS_VALUES = [-1, 0, 1, 2, 3]
@@ -46,10 +45,33 @@ export function LogView() {
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
   const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
-  const [exerciseFeel, setExerciseFeel] = useState<Record<string, { pump?: number; recovery?: number }>>({})
+  const [feelDismissed, setFeelDismissed] = useState<Record<string, true>>({})
+  const [feelOpen, setFeelOpen] = useState<string | null>(null)
   const [jointSoreness, setJointSoreness] = useState<number | undefined>(undefined)
 
   const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported) ?? null
+
+  // A dismissed prompt stays dismissed only while every set is still checked.
+  // Unchecking or adding a set makes the next completion ask again.
+  useEffect(() => {
+    if (!active) return
+    setFeelDismissed((d) => {
+      let changed = false
+      const next = { ...d }
+      for (const id of Object.keys(next)) {
+        const ex = active.exercises.find((e) => e.id === id)
+        if (!ex || !allSetsDone(ex)) {
+          delete next[id]
+          changed = true
+        }
+      }
+      return changed ? next : d
+    })
+    if (feelOpen) {
+      const open = active.exercises.find((e) => e.id === feelOpen)
+      if (!open || !allSetsDone(open)) setFeelOpen(null)
+    }
+  }, [active, feelOpen])
 
   useEffect(() => {
     const iv = setInterval(() => setTick((n) => n + 1), 1000)
@@ -166,12 +188,14 @@ export function LogView() {
   }
 
   function removeSet(exIdx: number, setIdx: number) {
+    const ex = getState().active?.exercises[exIdx]
+    if (!ex) return
+    const sets = ex.sets.filter((_, j) => j !== setIdx)
     patch((a) => ({
       ...a,
-      exercises: a.exercises.map((ex, i) =>
-        i !== exIdx ? ex : { ...ex, sets: ex.sets.filter((_, j) => j !== setIdx) },
-      ),
+      exercises: a.exercises.map((item, i) => (i !== exIdx ? item : { ...item, sets })),
     }))
+    if (allSetsDone({ ...ex, sets })) setFeelOpen(ex.id)
   }
 
   /** Marking done and starting the rest timer are one write: as two they raced, and
@@ -180,6 +204,7 @@ export function LogView() {
     const set = getState().active?.exercises[exIdx]?.sets[setIdx]
     if (!set) return
     const done = !set.done
+    const exercise = getState().active?.exercises[exIdx]
     // This tap is the user gesture that lets the completion chime play when the rest it starts
     // runs out, minutes later and with no gesture of its own. Nothing is heard now.
     if (done) armRestAlert()
@@ -192,6 +217,9 @@ export function LogView() {
       ),
       ...(done ? { restEndsAt: Date.now() + settings.restSeconds * 1000, restTotal: settings.restSeconds } : null),
     }))
+    if (exercise && allSetsDone({ ...exercise, sets: exercise.sets.map((s, j) => (j === setIdx ? { ...s, done } : s)) })) {
+      setFeelOpen(exercise.id)
+    }
   }
 
   async function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[], ratings?: WorkoutRatings) {
@@ -205,7 +233,6 @@ export function LogView() {
     setConfirmDiscard(false)
     setPendingFinish(null)
     setFeedback(null)
-    setExerciseFeel({})
     setJointSoreness(undefined)
     showToast('Workout saved ✓')
     if (dropboxConfigured(settings)) sync()
@@ -229,8 +256,6 @@ export function LogView() {
       showToast('Nothing logged — workout discarded')
       return
     }
-    const rated = Object.fromEntries(trimmed.exercises.filter((ex) => !ex.skipReason).map((ex) => [ex.id, {}]))
-    setExerciseFeel(rated)
     const groupIds = [...new Set(trimmed.exercises.filter((ex) => !ex.skipReason).map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
     setPendingFinish(trimmed)
     setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
@@ -314,44 +339,6 @@ export function LogView() {
             </div>
           </div>
         </div>
-        {pendingFinish.exercises.filter((ex) => !ex.skipReason).map((ex) => (
-          <div key={ex.id} class="card">
-            <h3>{ex.name}</h3>
-            <div class="setting-row">
-              <span class="muted small">Pump</span>
-              <div class="seg">
-                {PUMP_VALUES.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    class={exerciseFeel[ex.id]?.pump === v ? 'active' : ''}
-                    onClick={() => setExerciseFeel((f) => ({ ...f, [ex.id]: { ...f[ex.id], pump: v } }))}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div class="setting-row">
-              <span class="muted small">Recovery</span>
-              <div class="seg">
-                {RECOVERY_VALUES.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    class={exerciseFeel[ex.id]?.recovery === v ? 'active' : ''}
-                    onClick={() => setExerciseFeel((f) => ({ ...f, [ex.id]: { ...f[ex.id], recovery: v } }))}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ))}
-        {pendingFinish.exercises.some((ex) => !ex.skipReason) && (
-          <p class="muted small">Pump: 0 = none, 2 = lots. Recovery: 0 = not recovered since last time, 3 = fully recovered.</p>
-        )}
         {groupIds.map((id) => (
           <div key={id} class="card">
             <h3>{muscleGroupName(id, settings.muscleGroupNames)}</h3>
@@ -395,7 +382,7 @@ export function LogView() {
                 return [{ muscleGroupId: id, soreness: row.soreness, workload: row.workload }]
               })
               saveFinished(
-                { ...pendingFinish, exercises: withExerciseFeel(pendingFinish.exercises, exerciseFeel) },
+                pendingFinish,
                 muscles.length ? muscles : undefined,
                 jointSoreness != null ? { jointSoreness } : undefined,
               )
@@ -636,6 +623,63 @@ export function LogView() {
               ＋ Add set
             </button>
           </div>
+          )}
+          {allSetsDone(ex) && (feelOpen === ex.id || (ex.pump == null && ex.recovery == null && !feelDismissed[ex.id])) && (
+            <div class="exercise-feel">
+              <p class="muted small">How did {ex.name} go?</p>
+              <div class="setting-row">
+                <span class="muted small">Pump</span>
+                <div class="seg">
+                  {PUMP_VALUES.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      class={ex.pump === v ? 'active' : ''}
+                      onClick={() => patchExercise(exIdx, { pump: v })}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="muted small">Recovery</span>
+                <div class="seg">
+                  {RECOVERY_VALUES.map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      class={ex.recovery === v ? 'active' : ''}
+                      onClick={() => patchExercise(exIdx, { recovery: v })}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p class="muted small">Pump: 0 = none, 2 = lots. Recovery: 0 = not recovered, 3 = fully recovered.</p>
+              <button
+                class="btn small ghost"
+                type="button"
+                onClick={() => {
+                  setFeelDismissed((d) => ({ ...d, [ex.id]: true }))
+                  setFeelOpen(null)
+                }}
+              >
+                Done
+              </button>
+            </div>
+          )}
+          {allSetsDone(ex) && feelOpen !== ex.id && (ex.pump != null || ex.recovery != null || feelDismissed[ex.id]) && (
+            <p class="muted small">
+              {ex.pump != null || ex.recovery != null
+                ? `${ex.pump != null ? `Pump ${ex.pump}/2` : ''}${ex.pump != null && ex.recovery != null ? ' · ' : ''}${ex.recovery != null ? `Recovery ${ex.recovery}/3` : ''}`
+                : 'Not rated'}
+              {' '}
+              <button class="text-btn" type="button" onClick={() => setFeelOpen(ex.id)}>
+                Change
+              </button>
+            </p>
           )}
           {!ex.skipReason && (
           <input
