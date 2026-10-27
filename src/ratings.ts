@@ -1,5 +1,6 @@
 import type { LoggedExercise, Workout } from './types'
 import { muscleGroupName } from './mesoEngine'
+import { phaseSummary } from './checkin'
 
 /**
  * Display text for a workout's post-workout ratings (History).
@@ -30,28 +31,11 @@ export function muscleFeedbackLines(w: Workout, overrides: Record<number, string
   return lines
 }
 
-/** Pump and recovery for one exercise, or null when it was skipped or not rated. */
+/** The check-in answers for one exercise, or null when it was skipped or not rated. Older logs
+ *  carry pump as a bare number and a recovery rating; both still read back. */
 export function exerciseFeelText(ex: LoggedExercise): string | null {
   if (ex.skipReason) return null
-  const parts: string[] = []
-  if (ex.pump != null) parts.push(`pump ${ex.pump}/2`)
-  if (ex.recovery != null) parts.push(`recovery ${ex.recovery}/3`)
+  const parts = [phaseSummary(ex, 'start'), phaseSummary(ex, 'end')].filter((p): p is string => p != null)
+  if (ex.recovery != null) parts.push(`Recovery: ${ex.recovery}/3`)
   return parts.length ? parts.join(' · ') : null
-}
-
-/** Copy a finish-screen rating onto the exercise it belongs to. Skipped exercises are left alone. */
-export function withExerciseFeel(
-  exercises: LoggedExercise[],
-  feel: Record<string, { pump?: number; recovery?: number }>,
-): LoggedExercise[] {
-  return exercises.map((ex) => {
-    if (ex.skipReason) return ex
-    const rating = feel[ex.id]
-    if (!rating) return ex
-    return {
-      ...ex,
-      ...(rating.pump != null ? { pump: rating.pump } : {}),
-      ...(rating.recovery != null ? { recovery: rating.recovery } : {}),
-    }
-  })
 }

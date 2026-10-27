@@ -1,9 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks'
-import type { ActiveWorkout, LoggedExercise, LoggedSet, MuscleFeedback, Template, Workout, WorkoutRatings } from '../types'
+import type { ActiveWorkout, LoggedExercise, LoggedSet, Template, Workout } from '../types'
 import { ConversionInProgressError, finishWorkout, getState, setActive as storeSetActive, setTemplates, uid, upsertWorkout, useStore } from '../store'
 import { sync } from '../sync'
 import { dropboxConfigured } from '../dropbox'
 import { buildSkippedWorkout, generateWorkoutExercises, mesoPosition, muscleGroupName } from '../mesoEngine'
+import {
+  JOINT_PAIN_OPTIONS,
+  PUMP_OPTIONS,
+  SORENESS_OPTIONS,
+  WORKLOAD_OPTIONS,
+  phaseAnswered,
+  phaseReached,
+  phaseSummary,
+  phaseUntouched,
+  type CheckinPhase,
+} from '../checkin'
+import { Checkin } from './Checkin'
 import { skipExercise, unskipExercise } from '../skipExercise'
 import { SkipReasonDialog } from './SkipReason'
 import { ExercisePicker, emptyExercise } from './ExercisePicker'
@@ -17,13 +29,8 @@ import { isScoringWorkout } from '../records'
 import { dayMarkers } from '../calendar'
 import { exerciseHistory, weightsFilledForward, allSetsDone } from '../setEntry'
 
-const PUMP_VALUES = [0, 1, 2]
-const SORENESS_VALUES = [-1, 0, 1, 2, 3]
-const WORKLOAD_VALUES = [0, 1, 2, 3]
-const RECOVERY_VALUES = [0, 1, 2, 3]
-const JOINT_VALUES = [0, 1, 2, 3, 4, 5]
-
-type FeedbackDraft = Record<number, { pump?: number; soreness?: number; workload?: number; recovery?: number }>
+const PHASES: CheckinPhase[] = ['start', 'end']
+const checkinKey = (exId: string, phase: CheckinPhase) => `${exId}:${phase}`
 
 /** The one channel that always arrives. A chime can be blocked by autoplay policy and a buzz
  *  can be swallowed by the platform, so when neither got through the timer status says so instead of
@@ -43,35 +50,29 @@ export function LogView() {
   const [tick, setTick] = useState(0)
   const [toast, setToast] = useState('')
   const [confirmDiscard, setConfirmDiscard] = useState(false)
-  const [pendingFinish, setPendingFinish] = useState<ActiveWorkout | null>(null)
-  const [feedback, setFeedback] = useState<FeedbackDraft | null>(null)
-  const [feelDismissed, setFeelDismissed] = useState<Record<string, true>>({})
-  const [feelOpen, setFeelOpen] = useState<string | null>(null)
-  const [jointSoreness, setJointSoreness] = useState<number | undefined>(undefined)
+  const [checkinDismissed, setCheckinDismissed] = useState<Record<string, true>>({})
+  const [checkinOpen, setCheckinOpen] = useState<string | null>(null)
 
   const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported) ?? null
 
-  // A dismissed prompt stays dismissed only while every set is still checked.
-  // Unchecking or adding a set makes the next completion ask again.
+  // A dismissed check-in stays dismissed only while its phase still applies. Unchecking every
+  // set re-arms the soreness question; unchecking or adding a set re-arms the pump one.
   useEffect(() => {
     if (!active) return
-    setFeelDismissed((d) => {
-      let changed = false
-      const next = { ...d }
-      for (const id of Object.keys(next)) {
-        const ex = active.exercises.find((e) => e.id === id)
-        if (!ex || !allSetsDone(ex)) {
-          delete next[id]
-          changed = true
-        }
-      }
-      return changed ? next : d
-    })
-    if (feelOpen) {
-      const open = active.exercises.find((e) => e.id === feelOpen)
-      if (!open || !allSetsDone(open)) setFeelOpen(null)
+    const reached = (key: string) => {
+      const [id, phase] = [key.slice(0, key.lastIndexOf(':')), key.slice(key.lastIndexOf(':') + 1) as CheckinPhase]
+      const ex = active.exercises.find((e) => e.id === id)
+      return !!ex && phaseReached(ex, phase)
     }
-  }, [active, feelOpen])
+    setCheckinDismissed((d) => {
+      const stale = Object.keys(d).filter((k) => !reached(k))
+      if (!stale.length) return d
+      const next = { ...d }
+      for (const k of stale) delete next[k]
+      return next
+    })
+    if (checkinOpen && !reached(checkinOpen)) setCheckinOpen(null)
+  }, [active, checkinOpen])
 
   useEffect(() => {
     const iv = setInterval(() => setTick((n) => n + 1), 1000)
@@ -195,7 +196,7 @@ export function LogView() {
       ...a,
       exercises: a.exercises.map((item, i) => (i !== exIdx ? item : { ...item, sets })),
     }))
-    if (allSetsDone({ ...ex, sets })) setFeelOpen(ex.id)
+    if (allSetsDone({ ...ex, sets })) setCheckinOpen(checkinKey(ex.id, 'end'))
   }
 
   /** Marking done and starting the rest timer are one write: as two they raced, and
@@ -217,13 +218,18 @@ export function LogView() {
       ),
       ...(done ? { restEndsAt: Date.now() + settings.restSeconds * 1000, restTotal: settings.restSeconds } : null),
     }))
-    if (exercise && allSetsDone({ ...exercise, sets: exercise.sets.map((s, j) => (j === setIdx ? { ...s, done } : s)) })) {
-      setFeelOpen(exercise.id)
+    if (!exercise || !done) return
+    const sets = exercise.sets.map((s, j) => (j === setIdx ? { ...s, done } : s))
+    // The last set outranks the first when they are the same tap: pump and workload are the
+    // questions about the whole exercise.
+    if (allSetsDone({ ...exercise, sets })) setCheckinOpen(checkinKey(exercise.id, 'end'))
+    else if (!exercise.sets.some((s) => s.done) && !phaseAnswered(exercise, 'start')) {
+      setCheckinOpen(checkinKey(exercise.id, 'start'))
     }
   }
 
-  async function saveFinished(base: ActiveWorkout, muscleFeedback?: MuscleFeedback[], ratings?: WorkoutRatings) {
-    const finished: Workout = { ...base, endedAt: Date.now(), updatedAt: Date.now(), muscleFeedback, ratings }
+  async function saveFinished(base: ActiveWorkout) {
+    const finished: Workout = { ...base, endedAt: Date.now(), updatedAt: Date.now() }
     // The active workout is cleared only after the history write is committed; on failure it stays.
     const err = await finishWorkout(finished)
     if (err) {
@@ -231,9 +237,6 @@ export function LogView() {
       return
     }
     setConfirmDiscard(false)
-    setPendingFinish(null)
-    setFeedback(null)
-    setJointSoreness(undefined)
     showToast('Workout saved ✓')
     if (dropboxConfigured(settings)) sync()
   }
@@ -256,9 +259,7 @@ export function LogView() {
       showToast('Nothing logged — workout discarded')
       return
     }
-    const groupIds = [...new Set(trimmed.exercises.filter((ex) => !ex.skipReason).map((ex) => ex.muscleGroupId).filter((id): id is number => id != null))]
-    setPendingFinish(trimmed)
-    setFeedback(Object.fromEntries(groupIds.map((id) => [id, {}])))
+    void saveFinished(trimmed)
   }
 
   function skipMesoDay(reason: string) {
@@ -313,89 +314,6 @@ export function LogView() {
     setTemplates([...templates, t])
     patch((a) => ({ ...a, name }))
     showToast(`Template “${name}” saved`)
-  }
-
-  // This screen is only reachable from finish() on the active workout. Skipped workouts
-  // (status: 'skipped') are saved directly and never land here, so they never see this card.
-  if (feedback && pendingFinish) {
-    const groupIds = Object.keys(feedback).map(Number)
-    return (
-      <div class="view cols">
-        <h1>How'd it feel?</h1>
-        <div class="card">
-          <h3>Joint soreness</h3>
-          <div class="setting-row">
-            <span class="muted small">0 = not sore at all · 5 = very painful</span>
-            <div class="seg">
-              {JOINT_VALUES.map((v) => (
-                <button
-                  key={v}
-                  class={jointSoreness === v ? 'active' : ''}
-                  onClick={() => setJointSoreness(v)}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        {groupIds.map((id) => (
-          <div key={id} class="card">
-            <h3>{muscleGroupName(id, settings.muscleGroupNames)}</h3>
-            <div class="setting-row">
-              <span class="muted small">Soreness</span>
-              <div class="seg">
-                {SORENESS_VALUES.map((v) => (
-                  <button
-                    key={v}
-                    class={feedback[id].soreness === v ? 'active' : ''}
-                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], soreness: v } } : f))}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div class="setting-row">
-              <span class="muted small">Workload</span>
-              <div class="seg">
-                {WORKLOAD_VALUES.map((v) => (
-                  <button
-                    key={v}
-                    class={feedback[id].workload === v ? 'active' : ''}
-                    onClick={() => setFeedback((f) => (f ? { ...f, [id]: { ...f[id], workload: v } } : f))}
-                  >
-                    {v}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ))}
-        <div class="btn-row">
-          <button
-            class="btn primary wide"
-            onClick={() => {
-              const muscles = groupIds.flatMap((id) => {
-                const row = feedback[id]
-                if (row?.soreness == null && row?.workload == null) return []
-                return [{ muscleGroupId: id, soreness: row.soreness, workload: row.workload }]
-              })
-              saveFinished(
-                pendingFinish,
-                muscles.length ? muscles : undefined,
-                jointSoreness != null ? { jointSoreness } : undefined,
-              )
-            }}
-          >
-            Save workout
-          </button>
-          <button class="btn ghost wide" onClick={() => saveFinished(pendingFinish)}>
-            Skip feedback
-          </button>
-        </div>
-      </div>
-    )
   }
 
   if (!active) {
@@ -624,63 +542,64 @@ export function LogView() {
             </button>
           </div>
           )}
-          {allSetsDone(ex) && (feelOpen === ex.id || (ex.pump == null && ex.recovery == null && !feelDismissed[ex.id])) && (
-            <div class="exercise-feel">
-              <p class="muted small">How did {ex.name} go?</p>
-              <div class="setting-row">
-                <span class="muted small">Pump</span>
-                <div class="seg">
-                  {PUMP_VALUES.map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      class={ex.pump === v ? 'active' : ''}
-                      onClick={() => patchExercise(exIdx, { pump: v })}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div class="setting-row">
-                <span class="muted small">Recovery</span>
-                <div class="seg">
-                  {RECOVERY_VALUES.map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      class={ex.recovery === v ? 'active' : ''}
-                      onClick={() => patchExercise(exIdx, { recovery: v })}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p class="muted small">Pump: 0 = none, 2 = lots. Recovery: 0 = not recovered, 3 = fully recovered.</p>
-              <button
-                class="btn small ghost"
-                type="button"
-                onClick={() => {
-                  setFeelDismissed((d) => ({ ...d, [ex.id]: true }))
-                  setFeelOpen(null)
-                }}
-              >
-                Done
-              </button>
-            </div>
-          )}
-          {allSetsDone(ex) && feelOpen !== ex.id && (ex.pump != null || ex.recovery != null || feelDismissed[ex.id]) && (
-            <p class="muted small">
-              {ex.pump != null || ex.recovery != null
-                ? `${ex.pump != null ? `Pump ${ex.pump}/2` : ''}${ex.pump != null && ex.recovery != null ? ' · ' : ''}${ex.recovery != null ? `Recovery ${ex.recovery}/3` : ''}`
-                : 'Not rated'}
-              {' '}
-              <button class="text-btn" type="button" onClick={() => setFeelOpen(ex.id)}>
-                Change
-              </button>
-            </p>
-          )}
+          {PHASES.map((phase) => {
+            if (!phaseReached(ex, phase)) return null
+            const key = checkinKey(ex.id, phase)
+            const isOpen = (p: CheckinPhase) =>
+              checkinOpen === checkinKey(ex.id, p) || (phaseUntouched(ex, p) && !checkinDismissed[checkinKey(ex.id, p)])
+            // A one-set exercise reaches both phases on the same tap. Ask them one after the other.
+            if (phase === 'end' && phaseReached(ex, 'start') && isOpen('start')) return null
+            if (isOpen(phase)) {
+              const muscle = ex.muscleGroupId != null ? muscleGroupName(ex.muscleGroupId, settings.muscleGroupNames) : null
+              const close = () => {
+                setCheckinDismissed((d) => ({ ...d, [key]: true }))
+                setCheckinOpen(null)
+              }
+              const answer = (field: 'soreness' | 'jointPain' | 'pump' | 'workload', value: number) => {
+                const next = { ...ex, [field]: value }
+                patchExercise(exIdx, { [field]: value })
+                // Both answers in: the card has nothing left to ask, so it folds away.
+                if (phaseAnswered(next, phase)) setCheckinOpen(null)
+                else setCheckinOpen(key)
+              }
+              return phase === 'start' ? (
+                <Checkin
+                  key={key}
+                  title={`Before you go on · ${ex.name}`}
+                  questions={[
+                    {
+                      key: 'soreness',
+                      prompt: `How sore did ${muscle ? `your ${muscle.toLowerCase()}` : 'this muscle'} get since your last session?`,
+                      options: SORENESS_OPTIONS,
+                      value: ex.soreness,
+                    },
+                    { key: 'jointPain', prompt: 'Any joint pain?', options: JOINT_PAIN_OPTIONS, value: ex.jointPain },
+                  ]}
+                  onAnswer={(field, v) => answer(field as 'soreness' | 'jointPain', v)}
+                  onDone={close}
+                />
+              ) : (
+                <Checkin
+                  key={key}
+                  title={`How did ${ex.name} go?`}
+                  questions={[
+                    { key: 'pump', prompt: 'How was your pump?', options: PUMP_OPTIONS, value: ex.pump },
+                    { key: 'workload', prompt: 'How was the workload?', options: WORKLOAD_OPTIONS, value: ex.workload },
+                  ]}
+                  onAnswer={(field, v) => answer(field as 'pump' | 'workload', v)}
+                  onDone={close}
+                />
+              )
+            }
+            return (
+              <p key={key} class="muted small">
+                {phaseSummary(ex, phase) ?? 'Not rated'}{' '}
+                <button class="text-btn" type="button" onClick={() => setCheckinOpen(key)}>
+                  Change
+                </button>
+              </p>
+            )
+          })}
           {!ex.skipReason && (
           <input
             class={`note-input ${ex.notes ? 'filled' : ''}`}
