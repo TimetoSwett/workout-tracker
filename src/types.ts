@@ -16,9 +16,15 @@ export interface LoggedExercise {
   templateExerciseId?: string
   /** Set when this exercise was skipped for the session. The sets are not performed. */
   skipReason?: string
-  /** How pumped this exercise felt. 0 = none, 2 = lots. */
+  /** Asked after the first set. 0 = never got sore, 3 = still sore (RP's scale). */
+  soreness?: number
+  /** Asked after the first set. 0 = none, 3 = a lot of pain (RP's scale). */
+  jointPain?: number
+  /** Asked once every set is done. 0 = low, 2 = amazing (RP's scale). */
   pump?: number
-  /** How recovered this exercise felt. 0 = not recovered, 3 = fully recovered. */
+  /** Asked once every set is done. 0 = easy, 3 = too much (RP's scale). */
+  workload?: number
+  /** Older logs only: how recovered the exercise felt. 0 = not recovered, 3 = fully recovered. */
   recovery?: number
 }
 

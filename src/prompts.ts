@@ -2,6 +2,7 @@ import type { CoachMemory, DailyMetric, LoggedExercise, Mesocycle, Philosophy, P
 import { MUSCLE_GROUPS } from './types'
 import { dateOf } from './dates'
 import { muscleGroupName } from './mesoEngine'
+import { exerciseFeelText } from './ratings'
 import { compileMetrics, nutritionBlock } from './nutrition'
 import {
   beatsRecord,
@@ -148,12 +149,8 @@ export function compileWorkouts(workouts: Workout[], settings: Settings, mesocyc
         .join(', ')
       lines.push(`- ${ex.name}: ${sets}`)
       if (ex.notes) lines.push(`  notes: ${ex.notes}`)
-      if (ex.pump != null || ex.recovery != null) {
-        const feel: string[] = []
-        if (ex.pump != null) feel.push(`pump ${ex.pump}/2`)
-        if (ex.recovery != null) feel.push(`recovery ${ex.recovery}/3`)
-        lines.push(`  feel: ${feel.join(', ')}`)
-      }
+      const feel = exerciseFeelText(ex)
+      if (feel) lines.push(`  feel: ${feel}`)
     }
     if (w.exercises.length > 0) {
       lines.push(
