@@ -27,7 +27,7 @@ import { restDone, subscribeRestDone } from '../restWatch'
 import { localDate, localDateDaysAgo } from '../dates'
 import { isScoringWorkout } from '../records'
 import { dayMarkers } from '../calendar'
-import { exerciseHistory, weightsFilledForward, allSetsDone } from '../setEntry'
+import { exerciseHistory, weightsFilledForward, allSetsDone, shownWeight } from '../setEntry'
 
 const PHASES: CheckinPhase[] = ['start', 'end']
 const checkinKey = (exId: string, phase: CheckinPhase) => `${exId}:${phase}`
@@ -52,6 +52,9 @@ export function LogView() {
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   const [checkinDismissed, setCheckinDismissed] = useState<Record<string, true>>({})
   const [checkinOpen, setCheckinOpen] = useState<string | null>(null)
+  const [weightAsk, setWeightAsk] = useState<null | { exIdx: number; setIdx: number; name: string }>(null)
+  const [weightDraft, setWeightDraft] = useState('')
+  const [weightError, setWeightError] = useState('')
 
   const activeMeso = mesocycles.find((m) => m.status === 'active' && !m.imported) ?? null
 
@@ -201,31 +204,55 @@ export function LogView() {
 
   /** Marking done and starting the rest timer are one write: as two they raced, and
    *  the timer patch overwrote the `done` flag with the pre-tap value. */
-  function completeSet(exIdx: number, setIdx: number) {
-    const set = getState().active?.exercises[exIdx]?.sets[setIdx]
-    if (!set) return
-    const done = !set.done
+  function markSetDone(exIdx: number, setIdx: number, done: boolean, weight?: number) {
     const exercise = getState().active?.exercises[exIdx]
-    // This tap is the user gesture that lets the completion chime play when the rest it starts
-    // runs out, minutes later and with no gesture of its own. Nothing is heard now.
+    if (!exercise?.sets[setIdx]) return
     if (done) armRestAlert()
+    const sets = exercise.sets.map((s, j) => (j === setIdx ? { ...s, done, ...(weight != null ? { weight } : {}) } : s))
     patch((a) => ({
       ...a,
-      exercises: a.exercises.map((ex, i) =>
-        i !== exIdx
-          ? ex
-          : { ...ex, sets: ex.sets.map((s, j) => (j !== setIdx ? s : { ...s, done })) },
-      ),
+      exercises: a.exercises.map((ex, i) => (i !== exIdx ? ex : { ...ex, sets })),
       ...(done ? { restEndsAt: Date.now() + settings.restSeconds * 1000, restTotal: settings.restSeconds } : null),
     }))
-    if (!exercise || !done) return
-    const sets = exercise.sets.map((s, j) => (j === setIdx ? { ...s, done } : s))
+    if (!done) return
     // The last set outranks the first when they are the same tap: pump and workload are the
     // questions about the whole exercise.
     if (allSetsDone({ ...exercise, sets })) setCheckinOpen(checkinKey(exercise.id, 'end'))
     else if (!exercise.sets.some((s) => s.done) && !phaseAnswered(exercise, 'start')) {
       setCheckinOpen(checkinKey(exercise.id, 'start'))
     }
+  }
+
+  function completeSet(exIdx: number, setIdx: number) {
+    const exercise = getState().active?.exercises[exIdx]
+    const set = exercise?.sets[setIdx]
+    if (!exercise || !set) return
+    const done = !set.done
+    if (!done) {
+      markSetDone(exIdx, setIdx, false)
+      return
+    }
+    const shown = shownWeight(set)
+    if (shown == null) {
+      setWeightAsk({ exIdx, setIdx, name: exercise.name })
+      setWeightDraft('')
+      setWeightError('')
+      return
+    }
+    // A typed weight is already stored. A suggested weight is only a placeholder until
+    // the set is checked, so checking it writes that number down.
+    markSetDone(exIdx, setIdx, true, set.weight == null ? shown : undefined)
+  }
+
+  function confirmAskedWeight() {
+    if (!weightAsk) return
+    const n = parseFloat(weightDraft)
+    if (!Number.isFinite(n) || n < 0) {
+      setWeightError('Enter a weight')
+      return
+    }
+    markSetDone(weightAsk.exIdx, weightAsk.setIdx, true, n)
+    setWeightAsk(null)
   }
 
   async function saveFinished(base: ActiveWorkout) {
@@ -663,6 +690,40 @@ export function LogView() {
           onChoose={applySkip}
           onCancel={() => setSkipPrompt(null)}
         />
+      )}
+      {weightAsk && (
+        <div class="modal-backdrop" onClick={() => setWeightAsk(null)}>
+          <div class="modal" role="dialog" aria-modal="true" aria-label="Enter weight" onClick={(e) => e.stopPropagation()}>
+            <h3>{weightAsk.name}</h3>
+            <p class="muted small">Set {weightAsk.setIdx + 1} has no weight. What did you lift?</p>
+            <div class="setting-row">
+              <input
+                class="set-input"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="2.5"
+                autoFocus
+                aria-label={`Weight in ${settings.units}`}
+                value={weightDraft}
+                onInput={(e) => setWeightDraft((e.target as HTMLInputElement).value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') confirmAskedWeight()
+                }}
+              />
+              <span class="muted">{settings.units}</span>
+            </div>
+            {weightError && <p class="muted small">{weightError}</p>}
+            <div class="btn-row">
+              <button class="btn primary" type="button" onClick={confirmAskedWeight}>
+                Use this weight
+              </button>
+              <button class="btn ghost" type="button" onClick={() => setWeightAsk(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

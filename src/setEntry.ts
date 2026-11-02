@@ -1,6 +1,14 @@
 import type { LoggedExercise, LoggedSet, Workout } from './types'
 import { isCompletedSet, isScoringWorkout } from './records'
 
+/** The weight already visible for a set. A typed number wins. Otherwise it is the
+ *  suggested weight shown in the empty field. Null when the field is blank. */
+export function shownWeight(s: Pick<LoggedSet, 'weight' | 'weightTarget'>): number | null {
+  if (s.weight != null) return s.weight
+  if (s.weightTarget != null) return s.weightTarget
+  return null
+}
+
 /** Every planned set of this exercise has been checked off. A skipped exercise
  *  and an exercise with no sets are not done. */
 export function allSetsDone(ex: { skipReason?: string; sets: { done?: boolean }[] }): boolean {

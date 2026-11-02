@@ -3,7 +3,7 @@
 // newest first, never the workout in progress and never a lookalike name.
 import assert from 'node:assert/strict'
 import type { LoggedSet, Workout } from '../src/types'
-const { allSetsDone, exerciseHistory, isUnfinishedSet, weightsFilledForward } =
+const { allSetsDone, exerciseHistory, isUnfinishedSet, shownWeight, weightsFilledForward } =
   require('../src/setEntry') as typeof import('../src/setEntry')
 
 const set = (weight: number | null, extra: Partial<LoggedSet> = {}): LoggedSet => ({
@@ -119,6 +119,14 @@ function main() {
     assert.equal(allSetsDone({ sets: [{ done: true }, { done: false }] }), false)
     assert.equal(allSetsDone({ sets: [] }), false)
     assert.equal(allSetsDone({ skipReason: 'No time', sets: [{ done: true }] }), false)
+  })
+
+  check(() => {
+    assert.equal(shownWeight({ weight: 185, weightTarget: 200 }), 185)
+    assert.equal(shownWeight({ weight: null, weightTarget: 135 }), 135)
+    assert.equal(shownWeight({ weight: null, weightTarget: null }), null)
+    assert.equal(shownWeight({ weight: 0, weightTarget: 100 }), 0)
+    assert.equal(shownWeight({ weight: null, weightTarget: 0 }), 0)
   })
 
   console.log(`setEntry: ${n} checks passed`)
