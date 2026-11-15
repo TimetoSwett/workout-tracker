@@ -99,20 +99,32 @@ function nextTarget(
   return { weight: hitAll ? lastWeight + WEIGHT_INCREMENT : lastWeight, reps: targetReps }
 }
 
-/** Builds the pre-filled exercise list for the next workout in a mesocycle:
- *  no targets in week 1 (nothing to base them on), otherwise "hit target reps
- *  last time -> add weight, else repeat", reduced on the deload week. */
-export function generateWorkoutExercises(meso: Mesocycle, position: MesoPosition, allWorkouts: Workout[]): LoggedExercise[] {
+/** Builds the pre-filled exercise list for the next workout in a mesocycle.
+ *  A stored or computed guess supplies the suggested weight and reps, including in
+ *  week 1. Without one, week 1 is blank and later weeks use the last time this
+ *  plan slot was done. */
+export function generateWorkoutExercises(
+  meso: Mesocycle,
+  position: MesoPosition,
+  allWorkouts: Workout[],
+  guesses?: Record<string, { weight: number | null; reps: number | null }>,
+): LoggedExercise[] {
   const day = meso.days[position.dayIndex]
   if (!day) return []
   const relevant = allWorkouts.filter((w) => w.mesoId === meso.id && isScoringWorkout(w)).sort((a, b) => a.startedAt - b.startedAt)
   return day.exercises.map((tex) => {
     const setCount = Math.max(1, tex.sets)
-    const sets: LoggedSet[] = Array.from({ length: setCount }, () => {
-      if (position.isFirstWeek) return { weight: null, reps: null, done: false }
-      const { weight, reps } = nextTarget(tex, relevant, position.isDeload)
-      return { weight: null, reps: null, done: false, weightTarget: weight, repsTarget: reps }
-    })
+    const fromPlan = position.isFirstWeek
+      ? { weight: null as number | null, reps: null as number | null }
+      : nextTarget(tex, relevant, position.isDeload)
+    const guess = guesses?.[tex.name.trim().toLowerCase()]
+    const weight = guess?.weight ?? fromPlan.weight
+    const reps = guess?.reps ?? fromPlan.reps
+    const sets: LoggedSet[] = Array.from({ length: setCount }, () =>
+      weight == null && reps == null
+        ? { weight: null, reps: null, done: false }
+        : { weight: null, reps: null, done: false, weightTarget: weight, repsTarget: reps },
+    )
     const exercise: LoggedExercise = {
       id: crypto.randomUUID(),
       name: tex.name,

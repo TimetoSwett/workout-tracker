@@ -20,6 +20,7 @@ import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoa
 import { getMetrics } from '../metricsStore'
 import { coachEmptyMessage, coachWindow, type CoachWindow } from '../coachWindow'
 import { MesoDraftReview } from './MesoDraftReview'
+import { LogCheck } from './LogCheck'
 
 export type CoachIntent = 'plan-meso'
 
@@ -376,10 +377,13 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
     void syncCoach()
   }
 
+  const planNames = mesocycles.find((m) => m.status === 'active' && !m.deleted)?.days.flatMap((d) => d.exercises.map((ex) => ex.name)) ?? []
+
   if (!ai?.apiKey) {
     return (
       <div class="view narrow">
         <h1>Coach</h1>
+        <LogCheck workouts={workouts} planNames={planNames} settings={settings} />
         <div class="card">
           <p>Connect an AI provider in Settings to talk to your coach.</p>
           <p class="muted small">
@@ -393,6 +397,7 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
   return (
     <div class="view narrow">
       <h1>Coach</h1>
+      <LogCheck workouts={workouts} planNames={planNames} settings={settings} />
 
       <div class="card analyze-bar">
         <div class="timeframe-row">

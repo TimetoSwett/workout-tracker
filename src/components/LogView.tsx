@@ -28,6 +28,9 @@ import { localDate, localDateDaysAgo } from '../dates'
 import { isScoringWorkout } from '../records'
 import { dayMarkers } from '../calendar'
 import { exerciseHistory, weightsFilledForward, allSetsDone, shownWeight } from '../setEntry'
+import { guessNextTargets, mergeGuesses } from '../predictions'
+import { loadGuesses, saveGuesses } from '../targetStore'
+import { refineGuesses } from '../coachPredict'
 
 const PHASES: CheckinPhase[] = ['start', 'end']
 const checkinKey = (exId: string, phase: CheckinPhase) => `${exId}:${phase}`
@@ -266,6 +269,11 @@ export function LogView() {
     setConfirmDiscard(false)
     showToast('Workout saved ✓')
     if (dropboxConfigured(settings)) sync()
+    const state = getState()
+    const meso = finished.mesoId ? (state.mesocycles.find((m) => m.id === finished.mesoId && !m.deleted) ?? null) : null
+    const guesses = guessNextTargets({ workouts: state.workouts, finished, meso, unit: settings.units })
+    saveGuesses(guesses)
+    if (settings.ai?.apiKey) void refineGuesses(settings.ai, state.workouts, finished, meso, settings.units)
   }
 
   function finish() {
@@ -316,7 +324,8 @@ export function LogView() {
   function startMesoWorkout() {
     if (!activeMeso) return
     const pos = mesoPosition(activeMeso, workouts)
-    const exercises = generateWorkoutExercises(activeMeso, pos, workouts)
+    const live = guessNextTargets({ workouts, finished: null, meso: activeMeso, unit: settings.units })
+    const exercises = generateWorkoutExercises(activeMeso, pos, workouts, mergeGuesses(live, loadGuesses()))
     setActive({
       id: uid(),
       date: localDate(),
