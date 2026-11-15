@@ -129,6 +129,15 @@ function main() {
     assert.equal(shownWeight({ weight: null, weightTarget: 0 }), 0)
   })
 
+  check(() => {
+    const sessions = exerciseHistory(
+      workouts,
+      { name: 'Bench Press', templateExerciseId: 'uh-smith-bench' },
+      'today',
+    )
+    assert.deepEqual(sessions.map((s) => s.workoutId), ['newest', 'mid'])
+  })
+
   console.log(`setEntry: ${n} checks passed`)
 }
 

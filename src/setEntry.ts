@@ -54,9 +54,10 @@ export interface ExerciseHistorySession {
 }
 
 function sameExercise(ex: LoggedExercise, current: { templateExerciseId?: string; name: string }): boolean {
-  // A template id is the exercise. Matching the name as well would pull in a
-  // different lift that only happens to be spelled the same.
-  if (current.templateExerciseId) return ex.templateExerciseId === current.templateExerciseId
+  // The same template slot is the same exercise, even if it was renamed.
+  if (current.templateExerciseId && ex.templateExerciseId === current.templateExerciseId) return true
+  // A new plan gets new ids, so past sessions of this lift are found by the exact
+  // name. A different spelling, including a longer name, is a different exercise.
   const name = current.name.trim().toLowerCase()
   if (!name) return false
   return ex.name.trim().toLowerCase() === name
@@ -65,9 +66,9 @@ function sameExercise(ex: LoggedExercise, current: { templateExerciseId?: string
 /** Past sessions for one exercise, newest first.
  *
  *  The workout in progress is excluded, and so is any set that was not actually
- *  performed. A session with nothing completed is omitted. Identity is the
- *  template id when the current exercise has one; otherwise the exact name,
- *  not a prefix or a similar spelling.
+ *  performed. A session with nothing completed is omitted. A matching template id
+ *  counts, and so does the exact name, so a new plan can see sessions logged
+ *  under an older id. A prefix or a similar spelling does not count.
  */
 export function exerciseHistory(
   workouts: Workout[],
