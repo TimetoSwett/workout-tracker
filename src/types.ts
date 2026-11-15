@@ -245,8 +245,7 @@ export interface CoachThread {
   mode?: 'meso-plan'
   messages: CoachMessage[]
   deleted?: boolean
-  /** In-memory mesocycle produced from this thread via "Generate draft" (mode: 'meso-plan').
-   *  Not saved to the app's mesocycles until the user reviews and confirms it. */
+  /** Mesocycle produced from this thread. Saved as the active plan as soon as the coach generates it. */
   draftMeso?: Mesocycle
   /** Exercise names in `draftMeso` that didn't match anything in the app's known exercise list. */
   draftUnmatchedExercises?: string[]

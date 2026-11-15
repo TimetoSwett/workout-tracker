@@ -14,7 +14,8 @@ import {
   compileWorkouts,
   mesoPlanSystem,
 } from '../prompts'
-import { buildMesoDraft, collectKnownExerciseNames, parseMesoDraftJson } from '../mesoDraft'
+import { buildMesoDraft, collectKnownExerciseNames, parseMesoDraftJson, planSavedText, replyWithoutMesoJson, tryParseMesoDraft, withUsableSchedule } from '../mesoDraft'
+import { localDate } from '../dates'
 import { deleteThread, getMemory, getThreads, setMemory, subscribeCoach, syncCoach, upsertThread } from '../coachStore'
 import { getMetrics } from '../metricsStore'
 import { coachEmptyMessage, coachWindow, type CoachWindow } from '../coachWindow'
@@ -168,6 +169,18 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
     return coachSystem(thread.philosophy, settings.profile, settings, getMetrics(), memory) + dataBlock(thread)
   }
 
+  function commitCoachPlan(parsed: ReturnType<typeof parseMesoDraftJson>, existing?: Mesocycle) {
+    const known = collectKnownExerciseNames(workouts, templates, mesocycles)
+    const { meso, unmatchedExerciseNames } = buildMesoDraft(parsed, known)
+    const scheduled = withUsableSchedule(meso, localDate())
+    const saved: Mesocycle = existing
+      ? { ...scheduled, id: existing.id, createdAt: existing.createdAt, updatedAt: Date.now() }
+      : scheduled
+    saveMesocycle(saved)
+    if (dropboxConfigured(settings)) void sync()
+    return { meso: saved, unmatched: unmatchedExerciseNames }
+  }
+
   async function run(thread: CoachThread, history: CoachMessage[], userMsg: CoachMessage, isAnalysis: boolean) {
     if (!ai) return
     setBusy(true)
@@ -182,10 +195,24 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
         history.concat(userMsg).map((m) => ({ role: m.role, content: m.content })),
         { signal: abort.signal },
       )
-      const replyMsg: CoachMessage = { role: 'assistant', content: reply, at: Date.now() }
+      let content = reply
+      let draftMeso = thread.draftMeso
+      let draftUnmatchedExercises = thread.draftUnmatchedExercises
+      if (thread.mode === 'meso-plan') {
+        const parsed = tryParseMesoDraft(reply)
+        if (parsed) {
+          const saved = commitCoachPlan(parsed, thread.draftMeso)
+          content = replyWithoutMesoJson(reply, planSavedText(saved.meso))
+          draftMeso = saved.meso
+          draftUnmatchedExercises = saved.unmatched
+        }
+      }
+      const replyMsg: CoachMessage = { role: 'assistant', content, at: Date.now() }
       const updated: CoachThread = {
         ...thread,
         messages: [...history, userMsg, replyMsg],
+        draftMeso,
+        draftUnmatchedExercises,
         updatedAt: Date.now(),
       }
       upsertThread(updated)
@@ -283,10 +310,8 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
     void run(thread, [], msg, false)
   }
 
-  /** Asks the model to finalize the agreed-on plan as JSON (see MESO_JSON_CONTRACT),
-   *  validates the reply, retries once with a correction if it doesn't parse/validate,
-   *  then stores the resulting in-memory Mesocycle draft on the thread. Nothing is
-   *  saved to the app's mesocycles here — that's a separate review/save step. */
+  /** Turns the model's JSON into the active plan immediately. A later draft in this
+   *  same conversation updates that plan instead of adding another one. */
   async function generateDraft() {
     if (!ai || !active || active.mode !== 'meso-plan' || draftBusy) return
     setDraftBusy(true)
@@ -329,15 +354,13 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
     }
 
     function applyDraft(parsed: ReturnType<typeof parseMesoDraftJson>) {
-      const known = collectKnownExerciseNames(workouts, templates, mesocycles)
-      const { meso, unmatchedExerciseNames } = buildMesoDraft(parsed, known)
-      upsertThread({ ...active!, draftMeso: meso, draftUnmatchedExercises: unmatchedExerciseNames, updatedAt: Date.now() })
+      const saved = commitCoachPlan(parsed, active?.draftMeso)
+      upsertThread({ ...active!, draftMeso: saved.meso, draftUnmatchedExercises: saved.unmatched, updatedAt: Date.now() })
       void syncCoach()
     }
   }
 
-  /** Nothing is written to the app's mesocycles until this runs — `generateDraft`
-   *  only ever stores an in-memory draft on the thread. */
+  /** The plan is already saved. This writes edits from the review screen. */
   function acceptDraft(meso: Mesocycle) {
     if (!active) return
     saveMesocycle(meso)
@@ -432,7 +455,7 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
             </button>
             {active.mode === 'meso-plan' && (
               <button class="btn small primary" onClick={generateDraft} disabled={busy || draftBusy}>
-                {draftBusy ? 'Generating draft…' : '📋 Generate draft'}
+                {draftBusy ? 'Saving plan…' : 'Save plan'}
               </button>
             )}
             {draftBusy && (
@@ -510,6 +533,7 @@ export function CoachView({ intent, onIntentHandled, onDraftAccepted }: Props = 
           workouts={workouts}
           templates={templates}
           mesocycles={mesocycles}
+          alreadySaved={mesocycles.some((m) => m.id === active.draftMeso!.id && !m.deleted)}
           onAccept={acceptDraft}
           onDiscard={discardDraft}
         />

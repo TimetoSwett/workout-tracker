@@ -451,9 +451,9 @@ Rules:
   knows, so don't invent a new name when a known one works.
 - Omit a muscle group from "priorities" entirely if it should just be "maintain" (the
   default) — don't list every muscle group.
-- Do not send this JSON unless you and the user have actually agreed on the plan. If
-  "${MESO_DRAFT_TRIGGER}" arrives before that, ask the outstanding question(s) instead
-  of guessing.`
+- Do not send this JSON unless the user sends exactly "${MESO_DRAFT_TRIGGER}".
+  Never put a JSON object or a \`\`\`json block in a normal reply. Describe the plan
+  in plain text. The app saves it as a plan the user can start immediately.`
 
 export function mesoPlanSystem(
   philosophy: Philosophy,

@@ -146,6 +146,67 @@ export function parseMesoDraftJson(text: string): MesoDraftJSON {
   return validateMesoDraftShape(parsed)
 }
 
+/** Parses a coach reply when it contains a mesocycle. Returns null for ordinary prose. */
+export function tryParseMesoDraft(text: string): MesoDraftJSON | null {
+  try {
+    return parseMesoDraftJson(text)
+  } catch {
+    return null
+  }
+}
+
+const WEEKDAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+/** Weekday index from a day label, or null when the label doesn't name a day. */
+export function weekdayFromLabel(label: string): number | null {
+  const lower = label.toLowerCase()
+  for (let i = 0; i < WEEKDAY_NAMES.length; i++) {
+    if (lower.includes(WEEKDAY_NAMES[i])) return i
+  }
+  return null
+}
+
+/** Training weekdays in template order, only when every label names a distinct weekday
+ *  and they already run in ascending order (Sunday = 0). Otherwise the calendar would
+ *  attach the wrong session to a day. */
+export function trainingWeekdaysFromLabels(labels: string[]): number[] | null {
+  const days = labels.map(weekdayFromLabel)
+  if (days.some((d) => d == null)) return null
+  const nums = days as number[]
+  if (new Set(nums).size !== nums.length) return null
+  for (let i = 1; i < nums.length; i++) if (nums[i] <= nums[i - 1]) return null
+  return nums
+}
+
+/** Makes a coach-built plan startable today. Weekdays are set only when the day labels name them. */
+export function withUsableSchedule(meso: Mesocycle, today: string): Mesocycle {
+  const trainingWeekdays = trainingWeekdaysFromLabels(meso.days.map((d) => d.label))
+  return trainingWeekdays
+    ? { ...meso, startDate: today, trainingWeekdays }
+    : { ...meso, startDate: today }
+}
+
+/** What the chat should show instead of the JSON the model used to describe the plan. */
+export function planSavedText(meso: Mesocycle): string {
+  const days = meso.days
+    .map((d) => {
+      const exercises = d.exercises
+        .map((ex) => `${ex.name} ${ex.sets}x${ex.repTarget ? `${ex.repTarget[0]}-${ex.repTarget[1]}` : '?'}`)
+        .join(', ')
+      return `${d.label}: ${exercises}`
+    })
+    .join('\n')
+  return `Saved “${meso.name}” as your active plan. You can start it on Log.\n\n${days}`
+}
+
+/** Drops a mesocycle JSON block out of a coach reply. Prose around it is kept. */
+export function replyWithoutMesoJson(text: string, replacement: string): string {
+  const fenced = text.match(/```(?:json)?\s*[\s\S]*?```/i)
+  if (!fenced || fenced.index == null) return replacement
+  const rest = (text.slice(0, fenced.index) + text.slice(fenced.index + fenced[0].length)).trim()
+  return rest ? `${rest}\n\n${replacement}` : replacement
+}
+
 /** Every exercise name the app already knows about: built-in presets plus anything the
  *  user has logged, saved in a template, or used in a past mesocycle. Mirrors the set
  *  `ExercisePicker` offers, so a coach-generated draft is judged against the same list

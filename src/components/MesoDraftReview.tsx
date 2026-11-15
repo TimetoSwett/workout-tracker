@@ -56,13 +56,15 @@ interface Props {
   mesocycles: Mesocycle[]
   onAccept: (meso: Mesocycle) => void
   onDiscard: () => void
+  /** The plan is already the active mesocycle. Accept updates it; discard only closes the editor. */
+  alreadySaved?: boolean
 }
 
 /** Editable review of a coach-drafted mesocycle, laid out like `MesocyclesView`'s own
  *  editor (name/unit/weeks, per-day exercises with sets/reps, priorities) plus the
  *  `goal` field that editor doesn't carry. Nothing here touches the meso store —
  *  the caller decides what Accept/Discard mean. */
-export function MesoDraftReview({ meso, settings, workouts, templates, mesocycles, onAccept, onDiscard }: Props) {
+export function MesoDraftReview({ meso, settings, workouts, templates, mesocycles, onAccept, onDiscard, alreadySaved }: Props) {
   const [draft, setDraft] = useState<Draft>(() => draftFromMeso(meso))
   const [pickerDay, setPickerDay] = useState<number | null>(null)
   const [renameTarget, setRenameTarget] = useState<{ dayIdx: number; exIdx: number } | null>(null)
@@ -112,7 +114,7 @@ export function MesoDraftReview({ meso, settings, workouts, templates, mesocycle
       days,
       priorities,
       status: 'active',
-      createdAt: now,
+      createdAt: meso.createdAt,
       updatedAt: now,
     })
   }
@@ -122,7 +124,10 @@ export function MesoDraftReview({ meso, settings, workouts, templates, mesocycle
   return (
     <>
       <div class="card">
-        <h3>Review draft mesocycle</h3>
+        <h3>{alreadySaved ? 'Plan saved' : 'Review draft mesocycle'}</h3>
+        {alreadySaved && (
+          <p class="muted small">This is your active plan. Start it on Log, or edit it here and update.</p>
+        )}
         <input
           class="text-input"
           type="text"
@@ -253,10 +258,10 @@ export function MesoDraftReview({ meso, settings, workouts, templates, mesocycle
 
       <div class="btn-row">
         <button class="btn primary wide" onClick={accept} disabled={!canAccept}>
-          ✅ Accept & save
+          {alreadySaved ? 'Update plan' : '✅ Accept & save'}
         </button>
         <button class="btn danger wide" onClick={onDiscard}>
-          Discard
+          {alreadySaved ? 'Close' : 'Discard'}
         </button>
       </div>
       <p class="muted small">
