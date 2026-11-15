@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
+import { insertUpperHypertrophy } from './bundledMeso'
 import * as historyDb from './historyDb'
 import type { ActiveWorkout, Mesocycle, Settings, Template, Workout } from './types'
 
@@ -251,6 +252,13 @@ export function initStore(): Promise<void> {
     historyReady = true
   })
   return initPromise
+}
+
+/** Adds the Upper Hypertrophy plan once, after history has loaded. A failed history read is left untouched. */
+export function seedBundledMeso(): void {
+  if (!historyReady || historyBlocked) return
+  const next = insertUpperHypertrophy(state.mesocycles, Date.now())
+  if (next) setMesocycles(next)
 }
 
 async function loadHistory(): Promise<void> {

@@ -4,7 +4,7 @@ import { App } from './app.tsx'
 import { initStatusBar } from './native'
 import { reloadOnControllerChange } from './webUpdate'
 import { startRestWatch } from './restWatch'
-import { flushHistory, initStore } from './store'
+import { flushHistory, initStore, seedBundledMeso } from './store'
 import { requestPersistentStorage } from './historyDb'
 
 void initStatusBar()
@@ -14,6 +14,7 @@ reloadOnControllerChange()
 void initStore().then(() => {
   // Outside the component tree on purpose: the rest deadline has to be watched for as long as
   // the app is open, not for as long as the Log tab happens to be mounted.
+  seedBundledMeso()
   startRestWatch()
   render(<App />, document.getElementById('app')!)
   void requestPersistentStorage()
